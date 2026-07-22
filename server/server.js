@@ -61,6 +61,36 @@ db.exec(`
     )
 `);
 
+db.exec(`
+    CREATE TABLE IF NOT EXISTS customers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId INTEGER NOT NULL,
+        customerName TEXT NOT NULL,
+        contactNumber TEXT NOT NULL,
+        email TEXT NOT NULL,
+        credit REAL NOT NULL DEFAULT 0,
+        createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(userId) REFERENCES users(id)
+    )
+`);
+
+db.exec(`
+    CREATE TABLE IF NOT EXISTS suppliers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId INTEGER NOT NULL,
+        supplierName TEXT NOT NULL,
+        companyName TEXT NOT NULL,
+        contactNumber TEXT NOT NULL,
+        email TEXT NOT NULL,
+        address TEXT,
+        notes TEXT,
+        createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(userId) REFERENCES users(id)
+    )
+`);
+
 function createToken(user) {
     return jwt.sign(
         {
@@ -148,15 +178,39 @@ function generateBarcode() {
     return `PRD-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
-function createBarcodeSvg(value) {
-    const safeValue = String(value || "PRD-0000").replace(/[^A-Za-z0-9]/g, "");
-    const width = Math.max(140, safeValue.length * 8 + 20);
-    const bars = Array.from(safeValue).map((char, index) => {
+function getBarcodeEncryptionKey() {
+    const keySource = process.env.BARCODE_ENCRYPTION_KEY || JWT_SECRET;
+    return crypto.createHash("sha256").update(String(keySource)).digest();
+}
+
+function encryptBarcodeValue(value) {
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv("aes-256-gcm", getBarcodeEncryptionKey(), iv);
+    const encrypted = Buffer.concat([cipher.update(String(value), "utf8"), cipher.final()]);
+    const authTag = cipher.getAuthTag();
+    return Buffer.concat([iv, authTag, encrypted]).toString("base64url");
+}
+
+function createBarcodeSvg(encryptedValue, details) {
+    const productName = String(details.productName || "").trim();
+    const sellingPrice = Number(details.sellingPrice || 0).toFixed(2);
+    const discount = Number(details.discount || 0);
+    const discountedLine = discount > 0 ? `Discount: ${discount}%` : "";
+
+    const barcodeText = String(encryptedValue || "").replace(/[^A-Za-z0-9\-_.]/g, "");
+    const lines = [productName ? `Product: ${productName}` : null, `Price: ₹${sellingPrice}`, discountedLine || null, `Code: ${barcodeText}`].filter(Boolean);
+    const textWidth = Math.max(...lines.map((line) => line.length)) * 8;
+    const width = Math.max(220, textWidth + 40);
+    const height = 110;
+
+    const bars = Array.from(barcodeText).map((char, index) => {
         const barWidth = 2 + ((char.charCodeAt(0) + index) % 4);
-        return `<rect x="${index * 3 + 10}" y="24" width="${barWidth}" height="36" fill="black"/>`;
+        return `<rect x="${index * 3 + 10}" y="${height - 40}" width="${barWidth}" height="30" fill="black"/>`;
     }).join("");
 
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="90"><rect width="100%" height="100%" fill="white"/><text x="10" y="18" font-family="monospace" font-size="12">${safeValue}</text>${bars}</svg>`;
+    const textElements = lines.map((line, index) => `        <text x="10" y="${20 + index * 16}" font-family="sans-serif" font-size="12">${line}</text>`).join("\n");
+
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">\n  <rect width="100%" height="100%" fill="white"/>\n${textElements}\n  ${bars}\n</svg>`;
 }
 
 function formatProduct(product) {
@@ -709,13 +763,325 @@ app.get("/api/products/:id/barcode", authenticateToken, (req, res) => {
         db.prepare("UPDATE products SET barcode = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND userId = ?").run(barcode, req.params.id, req.user.id);
     }
 
+    const encryptedBarcode = encryptBarcodeValue(barcode);
+    const barcodeSvg = createBarcodeSvg(encryptedBarcode, {
+        productName: product.productName,
+        sellingPrice: product.sellingPrice,
+        discount: product.discount,
+    });
+
     return res.json({
         message: "Barcode generated successfully",
         barcode,
+        encryptedBarcode,
         format: "CODE128",
-        barcodeSvg: createBarcodeSvg(barcode),
+        barcodeSvg,
         productId: Number(req.params.id),
     });
+});
+
+function formatCustomer(customer) {
+    if (!customer) {
+        return null;
+    }
+
+    return {
+        id: customer.id,
+        userId: customer.userId,
+        customerName: customer.customerName,
+        contactNumber: customer.contactNumber,
+        email: customer.email,
+        credit: Number(customer.credit || 0),
+        createdAt: customer.createdAt,
+        updatedAt: customer.updatedAt,
+    };
+}
+
+app.get("/api/customers", authenticateToken, (req, res) => {
+    const { search, page = "1", limit = "20", sortOrder = "desc" } = req.query;
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.min(100, Math.max(1, Number(limit) || 20));
+
+    let query = "SELECT * FROM customers WHERE userId = ?";
+    const params = [req.user.id];
+
+    if (search) {
+        const value = `%${String(search).trim()}%`;
+        query += " AND (customerName LIKE ? OR email LIKE ? OR contactNumber LIKE ? )";
+        params.push(value, value, value);
+    }
+
+    query += " ORDER BY createdAt " + (sortOrder === "asc" ? "ASC" : "DESC");
+    const rows = db.prepare(query).all(...params);
+    const start = (safePage - 1) * safeLimit;
+    const paginatedRows = rows.slice(start, start + safeLimit);
+
+    return res.json({
+        message: "Customers fetched successfully",
+        customers: paginatedRows.map(formatCustomer),
+        pagination: {
+            total: rows.length,
+            page: safePage,
+            limit: safeLimit,
+            totalPages: Math.max(1, Math.ceil(rows.length / safeLimit)),
+        },
+    });
+});
+
+app.get("/api/customers/:id", authenticateToken, (req, res) => {
+    const customer = db.prepare("SELECT * FROM customers WHERE id = ? AND userId = ?").get(req.params.id, req.user.id);
+
+    if (!customer) {
+        return res.status(404).json({ message: "Customer not found" });
+    }
+
+    return res.json({ message: "Customer fetched successfully", customer: formatCustomer(customer) });
+});
+
+app.post("/api/customers", authenticateToken, (req, res) => {
+    const { customerName, contactNumber, email, credit } = req.body;
+
+    if (!customerName || !contactNumber || !email) {
+        return res.status(400).json({ message: "Please provide customerName, contactNumber, and email" });
+    }
+
+    const parsedCredit = parseNumericValue(credit, 0);
+
+    const result = db.prepare(`
+        INSERT INTO customers (
+            userId,
+            customerName,
+            contactNumber,
+            email,
+            credit
+        ) VALUES (?, ?, ?, ?, ?)
+    `).run(
+        req.user.id,
+        String(customerName).trim(),
+        String(contactNumber).trim(),
+        String(email).trim(),
+        parsedCredit
+    );
+
+    const customer = db.prepare("SELECT * FROM customers WHERE id = ?").get(result.lastInsertRowid);
+    return res.status(201).json({ message: "Customer created successfully", customer: formatCustomer(customer) });
+});
+
+app.put("/api/customers/:id", authenticateToken, (req, res) => {
+    const existing = db.prepare("SELECT * FROM customers WHERE id = ? AND userId = ?").get(req.params.id, req.user.id);
+
+    if (!existing) {
+        return res.status(404).json({ message: "Customer not found" });
+    }
+
+    const updates = [];
+    const values = [];
+
+    if (req.body.customerName !== undefined) {
+        updates.push("customerName = ?");
+        values.push(String(req.body.customerName).trim());
+    }
+
+    if (req.body.contactNumber !== undefined) {
+        updates.push("contactNumber = ?");
+        values.push(String(req.body.contactNumber).trim());
+    }
+
+    if (req.body.email !== undefined) {
+        updates.push("email = ?");
+        values.push(String(req.body.email).trim());
+    }
+
+    if (req.body.credit !== undefined) {
+        updates.push("credit = ?");
+        values.push(parseNumericValue(req.body.credit, 0));
+    }
+
+    if (updates.length === 0) {
+        return res.status(400).json({ message: "No valid customer fields were provided for update" });
+    }
+
+    updates.push("updatedAt = CURRENT_TIMESTAMP");
+    values.push(req.params.id, req.user.id);
+
+    db.prepare(`
+        UPDATE customers
+        SET ${updates.join(", ")}
+        WHERE id = ? AND userId = ?
+    `).run(...values);
+
+    const customer = db.prepare("SELECT * FROM customers WHERE id = ? AND userId = ?").get(req.params.id, req.user.id);
+    return res.json({ message: "Customer updated successfully", customer: formatCustomer(customer) });
+});
+
+app.delete("/api/customers/:id", authenticateToken, (req, res) => {
+    const existing = db.prepare("SELECT id FROM customers WHERE id = ? AND userId = ?").get(req.params.id, req.user.id);
+
+    if (!existing) {
+        return res.status(404).json({ message: "Customer not found" });
+    }
+
+    db.prepare("DELETE FROM customers WHERE id = ? AND userId = ?").run(req.params.id, req.user.id);
+    return res.json({ message: "Customer deleted successfully" });
+});
+
+function formatSupplier(supplier) {
+    if (!supplier) {
+        return null;
+    }
+
+    return {
+        id: supplier.id,
+        userId: supplier.userId,
+        supplierName: supplier.supplierName,
+        companyName: supplier.companyName,
+        contactNumber: supplier.contactNumber,
+        email: supplier.email,
+        address: supplier.address,
+        notes: supplier.notes,
+        createdAt: supplier.createdAt,
+        updatedAt: supplier.updatedAt,
+    };
+}
+
+app.get("/api/suppliers", authenticateToken, (req, res) => {
+    const { search, page = "1", limit = "20", sortOrder = "desc" } = req.query;
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.min(100, Math.max(1, Number(limit) || 20));
+
+    let query = "SELECT * FROM suppliers WHERE userId = ?";
+    const params = [req.user.id];
+
+    if (search) {
+        const value = `%${String(search).trim()}%`;
+        query += " AND (supplierName LIKE ? OR companyName LIKE ? OR email LIKE ? OR contactNumber LIKE ? )";
+        params.push(value, value, value, value);
+    }
+
+    query += " ORDER BY createdAt " + (sortOrder === "asc" ? "ASC" : "DESC");
+    const rows = db.prepare(query).all(...params);
+    const start = (safePage - 1) * safeLimit;
+    const paginatedRows = rows.slice(start, start + safeLimit);
+
+    return res.json({
+        message: "Suppliers fetched successfully",
+        suppliers: paginatedRows.map(formatSupplier),
+        pagination: {
+            total: rows.length,
+            page: safePage,
+            limit: safeLimit,
+            totalPages: Math.max(1, Math.ceil(rows.length / safeLimit)),
+        },
+    });
+});
+
+app.get("/api/suppliers/:id", authenticateToken, (req, res) => {
+    const supplier = db.prepare("SELECT * FROM suppliers WHERE id = ? AND userId = ?").get(req.params.id, req.user.id);
+
+    if (!supplier) {
+        return res.status(404).json({ message: "Supplier not found" });
+    }
+
+    return res.json({ message: "Supplier fetched successfully", supplier: formatSupplier(supplier) });
+});
+
+app.post("/api/suppliers", authenticateToken, (req, res) => {
+    const { supplierName, companyName, contactNumber, email, address, notes } = req.body;
+
+    if (!supplierName || !companyName || !contactNumber || !email) {
+        return res.status(400).json({ message: "Please provide supplierName, companyName, contactNumber, and email" });
+    }
+
+    const result = db.prepare(`
+        INSERT INTO suppliers (
+            userId,
+            supplierName,
+            companyName,
+            contactNumber,
+            email,
+            address,
+            notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+        req.user.id,
+        String(supplierName).trim(),
+        String(companyName).trim(),
+        String(contactNumber).trim(),
+        String(email).trim(),
+        String(address || "").trim(),
+        String(notes || "").trim()
+    );
+
+    const supplier = db.prepare("SELECT * FROM suppliers WHERE id = ?").get(result.lastInsertRowid);
+    return res.status(201).json({ message: "Supplier created successfully", supplier: formatSupplier(supplier) });
+});
+
+app.put("/api/suppliers/:id", authenticateToken, (req, res) => {
+    const existing = db.prepare("SELECT * FROM suppliers WHERE id = ? AND userId = ?").get(req.params.id, req.user.id);
+
+    if (!existing) {
+        return res.status(404).json({ message: "Supplier not found" });
+    }
+
+    const updates = [];
+    const values = [];
+
+    if (req.body.supplierName !== undefined) {
+        updates.push("supplierName = ?");
+        values.push(String(req.body.supplierName).trim());
+    }
+
+    if (req.body.companyName !== undefined) {
+        updates.push("companyName = ?");
+        values.push(String(req.body.companyName).trim());
+    }
+
+    if (req.body.contactNumber !== undefined) {
+        updates.push("contactNumber = ?");
+        values.push(String(req.body.contactNumber).trim());
+    }
+
+    if (req.body.email !== undefined) {
+        updates.push("email = ?");
+        values.push(String(req.body.email).trim());
+    }
+
+    if (req.body.address !== undefined) {
+        updates.push("address = ?");
+        values.push(String(req.body.address).trim());
+    }
+
+    if (req.body.notes !== undefined) {
+        updates.push("notes = ?");
+        values.push(String(req.body.notes).trim());
+    }
+
+    if (updates.length === 0) {
+        return res.status(400).json({ message: "No valid supplier fields were provided for update" });
+    }
+
+    updates.push("updatedAt = CURRENT_TIMESTAMP");
+    values.push(req.params.id, req.user.id);
+
+    db.prepare(`
+        UPDATE suppliers
+        SET ${updates.join(", ")}
+        WHERE id = ? AND userId = ?
+    `).run(...values);
+
+    const supplier = db.prepare("SELECT * FROM suppliers WHERE id = ? AND userId = ?").get(req.params.id, req.user.id);
+    return res.json({ message: "Supplier updated successfully", supplier: formatSupplier(supplier) });
+});
+
+app.delete("/api/suppliers/:id", authenticateToken, (req, res) => {
+    const existing = db.prepare("SELECT id FROM suppliers WHERE id = ? AND userId = ?").get(req.params.id, req.user.id);
+
+    if (!existing) {
+        return res.status(404).json({ message: "Supplier not found" });
+    }
+
+    db.prepare("DELETE FROM suppliers WHERE id = ? AND userId = ?").run(req.params.id, req.user.id);
+    return res.json({ message: "Supplier deleted successfully" });
 });
 
 app.listen(PORT, () => {
