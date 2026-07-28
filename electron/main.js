@@ -7,6 +7,7 @@ function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1400,
         height: 900,
+        autoHideMenuBar: true,
 
         webPreferences: {
             preload: path.join(__dirname, "preload.js"),
@@ -16,6 +17,7 @@ function createWindow() {
     });
 
     mainWindow.loadURL("http://localhost:5173");
+    mainWindow.setMenuBarVisibility(false);
 }
 
 app.whenReady().then(createWindow);

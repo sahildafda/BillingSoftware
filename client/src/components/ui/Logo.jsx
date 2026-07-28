@@ -23,14 +23,7 @@ export default function Logo() {
                     fontWeight="700"
                     fontSize="lg"
                 >
-                    Billing Software
-                </Text>
-
-                <Text
-                    color="muted"
-                    fontSize="sm"
-                >
-                    Desktop Edition
+                    MotoDhandho
                 </Text>
             </Box>
         </HStack>

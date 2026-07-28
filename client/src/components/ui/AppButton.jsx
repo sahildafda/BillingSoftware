@@ -8,7 +8,7 @@ export default function AppButton(props) {
         <MotionButton
             bg="primary"
             color="white"
-            h="50px"
+            h="45px"
             rounded="xl"
             fontWeight="600"
             border="1px solid transparent"

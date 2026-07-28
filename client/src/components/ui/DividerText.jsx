@@ -10,7 +10,7 @@ export default function DividerText({
   return (
     <Flex
       align="center"
-      my={6}
+      my={3}
     >
       <Divider />
 

@@ -845,6 +845,33 @@ app.post("/api/customers", authenticateToken, (req, res) => {
         return res.status(400).json({ message: "Please provide customerName, contactNumber, and email" });
     }
 
+    const normalizedCustomerName = String(customerName).trim();
+    const normalizedContactNumber = String(contactNumber).trim();
+    const normalizedEmail = String(email).trim().toLowerCase();
+
+    const existingConflict = db.prepare(`
+        SELECT id, customerName, contactNumber, email
+        FROM customers
+        WHERE userId = ?
+          AND (
+            LOWER(customerName) = LOWER(?)
+            OR contactNumber = ?
+            OR LOWER(email) = LOWER(?)
+          )
+    `).get(req.user.id, normalizedCustomerName, normalizedContactNumber, normalizedEmail);
+
+    if (existingConflict) {
+        const errors = {};
+        if (String(existingConflict.email).toLowerCase() === normalizedEmail) {
+            errors.email = "A customer with this email already exists";
+        } else if (existingConflict.contactNumber === normalizedContactNumber) {
+            errors.contactNumber = "A customer with this phone number already exists";
+        } else {
+            errors.customerName = "A customer with this name already exists";
+        }
+        return res.status(409).json({ message: "Customer conflict", errors });
+    }
+
     const parsedCredit = parseNumericValue(credit, 0);
 
     const result = db.prepare(`
@@ -857,9 +884,9 @@ app.post("/api/customers", authenticateToken, (req, res) => {
         ) VALUES (?, ?, ?, ?, ?)
     `).run(
         req.user.id,
-        String(customerName).trim(),
-        String(contactNumber).trim(),
-        String(email).trim(),
+        normalizedCustomerName,
+        normalizedContactNumber,
+        normalizedEmail,
         parsedCredit
     );
 
@@ -876,25 +903,67 @@ app.put("/api/customers/:id", authenticateToken, (req, res) => {
 
     const updates = [];
     const values = [];
+    const conflictConditions = [];
+    const conflictParams = [req.user.id, req.params.id];
+    const normalizedCustomerName = req.body.customerName !== undefined ? String(req.body.customerName).trim() : undefined;
+    const normalizedContactNumber = req.body.contactNumber !== undefined ? String(req.body.contactNumber).trim() : undefined;
+    const normalizedEmail = req.body.email !== undefined ? String(req.body.email).trim().toLowerCase() : undefined;
 
     if (req.body.customerName !== undefined) {
+        if (!normalizedCustomerName) {
+            return res.status(400).json({ message: "customerName cannot be empty" });
+        }
         updates.push("customerName = ?");
-        values.push(String(req.body.customerName).trim());
+        values.push(normalizedCustomerName);
+        conflictConditions.push("LOWER(customerName) = LOWER(?)");
+        conflictParams.push(normalizedCustomerName);
     }
 
     if (req.body.contactNumber !== undefined) {
+        if (!normalizedContactNumber) {
+            return res.status(400).json({ message: "contactNumber cannot be empty" });
+        }
         updates.push("contactNumber = ?");
-        values.push(String(req.body.contactNumber).trim());
+        values.push(normalizedContactNumber);
+        conflictConditions.push("contactNumber = ?");
+        conflictParams.push(normalizedContactNumber);
     }
 
     if (req.body.email !== undefined) {
+        if (!normalizedEmail) {
+            return res.status(400).json({ message: "email cannot be empty" });
+        }
         updates.push("email = ?");
-        values.push(String(req.body.email).trim());
+        values.push(normalizedEmail);
+        conflictConditions.push("LOWER(email) = LOWER(?)");
+        conflictParams.push(normalizedEmail);
     }
 
     if (req.body.credit !== undefined) {
         updates.push("credit = ?");
         values.push(parseNumericValue(req.body.credit, 0));
+    }
+
+    if (conflictConditions.length > 0) {
+        const duplicate = db.prepare(`
+            SELECT id, customerName, contactNumber, email
+            FROM customers
+            WHERE userId = ?
+              AND id != ?
+              AND (${conflictConditions.join(" OR ")})
+        `).get(...conflictParams);
+
+        if (duplicate) {
+            const errors = {};
+            if (normalizedEmail !== undefined && String(duplicate.email).toLowerCase() === normalizedEmail) {
+                errors.email = "A customer with this email already exists";
+            } else if (normalizedContactNumber !== undefined && duplicate.contactNumber === normalizedContactNumber) {
+                errors.contactNumber = "A customer with this phone number already exists";
+            } else if (normalizedCustomerName !== undefined && duplicate.customerName.toLowerCase() === normalizedCustomerName.toLowerCase()) {
+                errors.customerName = "A customer with this name already exists";
+            }
+            return res.status(409).json({ message: "Customer conflict", errors });
+        }
     }
 
     if (updates.length === 0) {

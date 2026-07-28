@@ -5,6 +5,9 @@ import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
 import OtpVerification from "./pages/auth/OtpVerification";
 import Dashboard from "./pages/Dashboard";
+import Products from "./pages/Products";
+import Customers from "./pages/Customers";
+import Suppliers from "./pages/Suppliers";
 import PageTransition from "./components/layout/PageTransition";
 import { ROUTES } from "./constants/routes";
 
@@ -17,6 +20,9 @@ export default function App() {
           <Route path={ROUTES.REGISTER} element={<PageTransition><Register /></PageTransition>} />
           <Route path={ROUTES.OTP} element={<PageTransition><OtpVerification /></PageTransition>} />
           <Route path={ROUTES.DASHBOARD} element={<PageTransition><Dashboard /></PageTransition>} />
+          <Route path={ROUTES.PRODUCTS} element={<PageTransition><Products /></PageTransition>} />
+          <Route path={ROUTES.CUSTOMERS} element={<PageTransition><Customers /></PageTransition>} />
+          <Route path={ROUTES.SUPPLIERS} element={<PageTransition><Suppliers /></PageTransition>} />
           <Route path="*" element={<Navigate to={ROUTES.LOGIN} replace />} />
         </Routes>
       </AnimatePresence>
