@@ -7,15 +7,30 @@ const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const nodemailer = require("nodemailer");
+const twilio = require("twilio");
+const bwipjs = require("bwip-js");
+const multer = require("multer");
 const Database = require("better-sqlite3");
+const { createDatabaseBackup, initializeBackupScheduler, resolveBackupHour } = require("./dbBackup");
 
 const app = express();
 const PORT = 5000;
 const JWT_SECRET = process.env.JWT_SECRET || "billing-software-secret";
-const db = new Database(path.join(__dirname, "database.sqlite"));
+const DB_BACKUP_HOUR = resolveBackupHour(process.env.DB_BACKUP_HOUR || "6");
+const DB_FILE_PATH = path.join(__dirname, "database.sqlite");
+const backupUpload = multer({ dest: path.join(__dirname, "tmp-uploads"), limits: { fileSize: 100 * 1024 * 1024 } });
+let db = new Database(DB_FILE_PATH);
+let backupScheduler = initializeBackupScheduler({
+    dbInstance: db,
+    backupDirectory: path.join(__dirname, "backups"),
+    baseName: "database",
+    backupHour: DB_BACKUP_HOUR,
+});
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "15mb" }));
+app.use(express.urlencoded({ extended: true, limit: "15mb" }));
+app.use("/api/db/backups", express.static(path.join(__dirname, "backups")));
 
 db.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -49,7 +64,8 @@ db.exec(`
         productPrice REAL NOT NULL DEFAULT 0,
         sellingPrice REAL NOT NULL DEFAULT 0,
         stock INTEGER NOT NULL DEFAULT 0,
-        brand TEXT NOT NULL,
+        brand TEXT DEFAULT '',
+        supplierId INTEGER,
         gstPercentage REAL NOT NULL DEFAULT 0,
         productImages TEXT NOT NULL DEFAULT '[]',
         discount REAL NOT NULL DEFAULT 0,
@@ -57,7 +73,73 @@ db.exec(`
         stockStatus TEXT NOT NULL DEFAULT 'out_of_stock',
         createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(userId) REFERENCES users(id)
+        FOREIGN KEY(userId) REFERENCES users(id),
+        FOREIGN KEY(supplierId) REFERENCES suppliers(id)
+    )
+`);
+
+function ensureProductSupplierColumn() {
+    const columns = db.prepare("PRAGMA table_info(products)").all();
+    const hasSupplierId = columns.some((column) => column.name === "supplierId");
+
+    if (!hasSupplierId) {
+        db.exec("ALTER TABLE products ADD COLUMN supplierId INTEGER");
+    }
+}
+
+ensureProductSupplierColumn();
+
+db.exec(`
+    CREATE TABLE IF NOT EXISTS invoices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId INTEGER NOT NULL,
+        customerId INTEGER,
+        customerName TEXT NOT NULL,
+        contactNumber TEXT,
+        email TEXT,
+        invoiceNumber TEXT NOT NULL UNIQUE,
+        subtotal REAL NOT NULL DEFAULT 0,
+        gstTotal REAL NOT NULL DEFAULT 0,
+        discountTotal REAL NOT NULL DEFAULT 0,
+        total REAL NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'paid',
+        createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(userId) REFERENCES users(id),
+        FOREIGN KEY(customerId) REFERENCES customers(id)
+    )
+`);
+
+db.exec(`
+    CREATE TABLE IF NOT EXISTS invoice_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId INTEGER NOT NULL,
+        invoiceId INTEGER NOT NULL,
+        productId INTEGER,
+        productName TEXT NOT NULL,
+        sku TEXT,
+        quantity INTEGER NOT NULL DEFAULT 1,
+        unitPrice REAL NOT NULL DEFAULT 0,
+        gstPercent REAL NOT NULL DEFAULT 0,
+        discountPercent REAL NOT NULL DEFAULT 0,
+        lineTotal REAL NOT NULL DEFAULT 0,
+        createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(userId) REFERENCES users(id),
+        FOREIGN KEY(invoiceId) REFERENCES invoices(id),
+        FOREIGN KEY(productId) REFERENCES products(id)
+    )
+`);
+
+db.exec(`
+    CREATE TABLE IF NOT EXISTS invoice_payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId INTEGER NOT NULL,
+        invoiceId INTEGER NOT NULL,
+        method TEXT NOT NULL,
+        amount REAL NOT NULL DEFAULT 0,
+        createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(userId) REFERENCES users(id),
+        FOREIGN KEY(invoiceId) REFERENCES invoices(id)
     )
 `);
 
@@ -178,6 +260,83 @@ function generateBarcode() {
     return `PRD-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
+function generateInvoiceNumber() {
+    return `INV-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+function normalizeWhatsAppNumber(value) {
+    if (!value) {
+        return null;
+    }
+
+    const candidate = String(value).trim();
+    if (!candidate) {
+        return null;
+    }
+
+    const cleaned = candidate.replace(/[^\d+]/g, "");
+    if (!cleaned) {
+        return null;
+    }
+
+    const normalized = cleaned.startsWith("+") ? cleaned : `+${cleaned}`;
+    return `whatsapp:${normalized}`;
+}
+
+function formatCurrency(value) {
+    return Number(value || 0).toLocaleString("en-IN", {
+        style: "currency",
+        currency: "INR",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    });
+}
+
+async function sendInvoiceWhatsApp(invoice, customer, user) {
+    const enabled = String(process.env.TWILIO_WHATSAPP_ENABLE || "false").toLowerCase() === "true";
+    if (!enabled) {
+        console.log("[WhatsApp] Twilio WhatsApp delivery is disabled; set TWILIO_WHATSAPP_ENABLE=true to enable it.");
+        return { success: false, skipped: true, reason: "TWILIO_WHATSAPP_ENABLE is not enabled" };
+    }
+
+    const accountSid = process.env.TWILIO_ACCOUNT_SID || "";
+    const authToken = process.env.TWILIO_AUTH_TOKEN || "";
+    const from = process.env.TWILIO_WHATSAPP_FROM || "";
+    const to = normalizeWhatsAppNumber(customer?.contactNumber || customer?.phone || customer?.mobile || invoice?.contactNumber || invoice?.phone || "");
+
+    if (!accountSid || !authToken || !from || !to) {
+        console.log("[WhatsApp] Twilio environment variables are missing or the customer contact is incomplete.");
+        return {
+            success: false,
+            skipped: true,
+            reason: "Missing Twilio or WhatsApp contact configuration",
+        };
+    }
+
+    const customerName = String(customer?.customerName || "Customer").trim() || "Customer";
+    const businessName = String(user?.companyName || "Billing Software").trim() || "Billing Software";
+    const message = `Hello ${customerName}, your invoice ${invoice?.invoiceNumber || "N/A"} for ${formatCurrency(invoice?.total || 0)} has been generated by ${businessName}. Thank you for your purchase.`;
+
+    try {
+        const client = twilio(accountSid, authToken);
+        const result = await client.messages.create({
+            from,
+            to,
+            body: message,
+        });
+
+        console.log("[WhatsApp] Invoice message sent successfully:", result.sid);
+        return { success: true, sid: result.sid, to, message };
+    } catch (error) {
+        console.error("[WhatsApp] Invoice message delivery failed:", error.message);
+        return {
+            success: false,
+            error: error.message,
+            reason: "Twilio message delivery failed",
+        };
+    }
+}
+
 function getBarcodeEncryptionKey() {
     const keySource = process.env.BARCODE_ENCRYPTION_KEY || JWT_SECRET;
     return crypto.createHash("sha256").update(String(keySource)).digest();
@@ -191,26 +350,39 @@ function encryptBarcodeValue(value) {
     return Buffer.concat([iv, authTag, encrypted]).toString("base64url");
 }
 
-function createBarcodeSvg(encryptedValue, details) {
+function createBarcodeSvg(rawValue, details = {}, options = {}) {
+    const config = {
+        bcid: "code128",
+        text: String(rawValue || "").trim(),
+        scale: 2,
+        height: Number(options.height || 70),
+        width: Number(options.width || 2),
+        includetext: false,
+        textxalign: "center",
+        paddingwidth: 6,
+        paddingheight: 8,
+        backgroundcolor: "ffffff",
+        foregroundcolor: "000000",
+        rotate: "N",
+    };
+
     const productName = String(details.productName || "").trim();
     const sellingPrice = Number(details.sellingPrice || 0).toFixed(2);
     const discount = Number(details.discount || 0);
     const discountedLine = discount > 0 ? `Discount: ${discount}%` : "";
+    const productLine = productName || "Product";
+    const priceLine = `₹${sellingPrice}`;
 
-    const barcodeText = String(encryptedValue || "").replace(/[^A-Za-z0-9\-_.]/g, "");
-    const lines = [productName ? `Product: ${productName}` : null, `Price: ₹${sellingPrice}`, discountedLine || null, `Code: ${barcodeText}`].filter(Boolean);
-    const textWidth = Math.max(...lines.map((line) => line.length)) * 8;
-    const width = Math.max(220, textWidth + 40);
-    const height = 110;
+    const svg = bwipjs.toSVG(config);
+    const lines = `
+      <text x="50%" y="18" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#000">${productLine}</text>
+      <text x="50%" y="34" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="#000">${priceLine}</text>
+      ${discountedLine ? `<text x="50%" y="50" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#000">${discountedLine}</text>` : ""}`;
+    const svgWithText = svg.replace("<svg", `<svg xmlns="http://www.w3.org/2000/svg"`);
+    const insertIndex = svgWithText.indexOf("<g");
+    const trimmedSvg = insertIndex >= 0 ? svgWithText.slice(0, insertIndex) + lines + svgWithText.slice(insertIndex) : svgWithText;
 
-    const bars = Array.from(barcodeText).map((char, index) => {
-        const barWidth = 2 + ((char.charCodeAt(0) + index) % 4);
-        return `<rect x="${index * 3 + 10}" y="${height - 40}" width="${barWidth}" height="30" fill="black"/>`;
-    }).join("");
-
-    const textElements = lines.map((line, index) => `        <text x="10" y="${20 + index * 16}" font-family="sans-serif" font-size="12">${line}</text>`).join("\n");
-
-    return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">\n  <rect width="100%" height="100%" fill="white"/>\n${textElements}\n  ${bars}\n</svg>`;
+    return trimmedSvg;
 }
 
 function formatProduct(product) {
@@ -226,6 +398,7 @@ function formatProduct(product) {
         sellingPrice: Number(product.sellingPrice || 0),
         stock: Number(product.stock || 0),
         brand: product.brand,
+        supplierId: product.supplierId != null ? Number(product.supplierId) : null,
         gstPercentage: Number(product.gstPercentage || 0),
         productImages: normalizeProductImages(product.productImages),
         discount: Number(product.discount || 0),
@@ -281,8 +454,119 @@ async function sendOtpEmail(email, otp) {
     }
 }
 
+function ensureDatabaseBackupDirectory() {
+    const backupDir = path.join(__dirname, "backups");
+    require("fs").mkdirSync(backupDir, { recursive: true });
+    return backupDir;
+}
+
+async function performDatabaseBackup() {
+    const backupDirectory = ensureDatabaseBackupDirectory();
+    const result = await createDatabaseBackup({ dbInstance: db, backupDirectory, baseName: "database" });
+    return result;
+}
+
+async function restoreDatabaseFromFile(filePath) {
+    const targetPath = DB_FILE_PATH;
+    const sourceDb = new Database(filePath, { readonly: true });
+
+    try {
+        const tables = sourceDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all();
+        if (!tables.length) {
+            throw new Error("Selected file does not contain a valid SQLite database");
+        }
+    } finally {
+        sourceDb.close();
+    }
+
+    if (db && typeof db.close === "function") {
+        db.close();
+    }
+
+    require("fs").copyFileSync(filePath, targetPath);
+    db = new Database(targetPath);
+    backupScheduler.setDatabase(db);
+    console.log("[DB Restore] Database replaced from backup file");
+}
+
 app.get("/", (req, res) => {
     res.send("Backend Running");
+});
+
+app.post("/api/db/backup", authenticateToken, async (req, res) => {
+    try {
+        const backup = await performDatabaseBackup();
+        return res.json({ message: "Database backup created successfully", backup });
+    } catch (error) {
+        console.error("[DB Backup] Manual backup failed:", error.message);
+        return res.status(500).json({ message: "Database backup failed", error: error.message });
+    }
+});
+
+app.get("/api/db/backup-list", authenticateToken, (req, res) => {
+    const backupDir = path.join(__dirname, "backups");
+
+    try {
+        require("fs").mkdirSync(backupDir, { recursive: true });
+        const files = require("fs").readdirSync(backupDir)
+            .filter((filename) => filename.endsWith(".sqlite"))
+            .sort((a, b) => b.localeCompare(a));
+
+        return res.json({ message: "Backup list fetched successfully", files });
+    } catch (error) {
+        return res.status(500).json({ message: "Unable to list backups", error: error.message });
+    }
+});
+
+app.get("/api/db/download/:fileName", authenticateToken, (req, res) => {
+    const fileName = path.basename(req.params.fileName);
+    const backupPath = path.join(__dirname, "backups", fileName);
+
+    if (!require("fs").existsSync(backupPath)) {
+        return res.status(404).json({ message: "Backup file not found" });
+    }
+
+    return res.download(backupPath, fileName);
+});
+
+app.post("/api/db/import", authenticateToken, backupUpload.single("databaseFile"), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ message: "Please upload a SQLite database file" });
+    }
+
+    const allowedExtensions = [".sqlite", ".db", ".sqlite3"];
+    const fileExtension = path.extname(req.file.originalname).toLowerCase();
+
+    if (!allowedExtensions.includes(fileExtension)) {
+        return res.status(400).json({ message: "Only SQLite database files are allowed" });
+    }
+
+    try {
+        const sourcePath = req.file.path;
+        await restoreDatabaseFromFile(sourcePath);
+
+        try {
+            require("fs").unlinkSync(sourcePath);
+        } catch (error) {
+            console.warn("[DB Restore] Upload cleanup warning:", error.message);
+        }
+
+        const backup = await performDatabaseBackup();
+        return res.json({ message: "Database imported successfully", importedFile: req.file.originalname, backup });
+    } catch (error) {
+        console.error("[DB Restore] Import failed:", error.message);
+        return res.status(500).json({ message: "Database import failed", error: error.message });
+    }
+});
+
+app.post("/api/auth/logout", authenticateToken, async (req, res) => {
+    try {
+        const backup = await performDatabaseBackup();
+        return res.json({ message: "Logout successful and database backup created", backup });
+    } catch (error) {
+        console.error("[DB Backup] Logout backup failed:", error.message);
+        return res.status(500).json({ message: "Logout backup failed", error: error.message });
+    }
 });
 
 app.post("/api/auth/register", async (req, res) => {
@@ -614,20 +898,336 @@ app.get("/api/products/:id", authenticateToken, (req, res) => {
     return res.json({ message: "Product fetched successfully", product: formatProduct(product) });
 });
 
-app.post("/api/products", authenticateToken, (req, res) => {
-    const { productName, productPrice, sellingPrice, stock, brand, gstPercentage, productImages, discount, barcode } = req.body;
+app.get("/api/billing/customer-balances", authenticateToken, (req, res) => {
+    const { search } = req.query;
 
-    if (!productName || productPrice === undefined || sellingPrice === undefined || stock === undefined || !brand || gstPercentage === undefined) {
-        return res.status(400).json({ message: "Please provide productName, productPrice, sellingPrice, stock, brand, and gstPercentage" });
+    const customers = db.prepare(`
+        SELECT *
+        FROM customers
+        WHERE userId = ?
+        ${search ? "AND (customerName LIKE ? OR email LIKE ? OR contactNumber LIKE ?)" : ""}
+        ORDER BY customerName ASC
+    `).all(
+        ...(search
+            ? [req.user.id, `%${String(search).trim()}%`, `%${String(search).trim()}%`, `%${String(search).trim()}%`]
+            : [req.user.id])
+    );
+
+    const balances = customers.map((customer) => {
+        const totalInvoiced = db.prepare(`
+            SELECT COALESCE(SUM(total), 0) AS totalInvoiced
+            FROM invoices
+            WHERE userId = ? AND customerId = ?
+        `).get(req.user.id, customer.id)?.totalInvoiced || 0;
+
+        const totalPaid = db.prepare(`
+            SELECT COALESCE(SUM(ip.amount), 0) AS totalPaid
+            FROM invoice_payments ip
+            INNER JOIN invoices i ON i.id = ip.invoiceId
+            WHERE ip.userId = ? AND i.customerId = ?
+        `).get(req.user.id, customer.id)?.totalPaid || 0;
+
+        const balance = Number(totalInvoiced) - Number(totalPaid);
+
+        return {
+            id: customer.id,
+            customerName: customer.customerName,
+            contactNumber: customer.contactNumber,
+            email: customer.email,
+            totalInvoiced: Number(totalInvoiced),
+            totalPaid: Number(totalPaid),
+            balance,
+            status: balance > 0 ? "due" : balance < 0 ? "advance" : "settled",
+        };
+    });
+
+    return res.json({
+        message: "Customer balances fetched successfully",
+        balances,
+    });
+});
+
+app.get("/api/billing/invoices", authenticateToken, (req, res) => {
+    const { status } = req.query;
+
+    let query = "SELECT * FROM invoices WHERE userId = ?";
+    const params = [req.user.id];
+
+    if (status) {
+        query += " AND status = ?";
+        params.push(String(status).trim());
+    }
+
+    query += " ORDER BY createdAt DESC";
+
+    const invoices = db.prepare(query).all(...params);
+    const items = db.prepare("SELECT * FROM invoice_items WHERE userId = ?").all(req.user.id);
+    const payments = db.prepare("SELECT * FROM invoice_payments WHERE userId = ?").all(req.user.id);
+
+    const itemMap = {};
+    items.forEach((item) => {
+        itemMap[item.invoiceId] = itemMap[item.invoiceId] || [];
+        itemMap[item.invoiceId].push(item);
+    });
+
+    const paymentsMap = {};
+    payments.forEach((payment) => {
+        paymentsMap[payment.invoiceId] = paymentsMap[payment.invoiceId] || [];
+        paymentsMap[payment.invoiceId].push(payment);
+    });
+
+    return res.json({
+        message: "Invoices fetched successfully",
+        invoices: invoices.map((invoice) => ({
+            ...invoice,
+            items: itemMap[invoice.id] || [],
+            payments: paymentsMap[invoice.id] || [],
+        })),
+    });
+});
+
+app.get("/api/billing/invoices/:id", authenticateToken, (req, res) => {
+    const invoice = db.prepare("SELECT * FROM invoices WHERE id = ? AND userId = ?").get(req.params.id, req.user.id);
+
+    if (!invoice) {
+        return res.status(404).json({ message: "Invoice not found" });
+    }
+
+    const items = db.prepare("SELECT * FROM invoice_items WHERE invoiceId = ? AND userId = ?").all(req.params.id, req.user.id);
+    const payments = db.prepare("SELECT * FROM invoice_payments WHERE invoiceId = ? AND userId = ?").all(req.params.id, req.user.id);
+
+    return res.json({
+        message: "Invoice fetched successfully",
+        invoice: {
+            ...invoice,
+            items,
+            payments,
+        },
+    });
+});
+
+app.post("/api/billing/invoices", authenticateToken, async (req, res) => {
+    const { customer, customerId, items, payments } = req.body;
+
+    if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ message: "At least one item is required for billing" });
+    }
+
+    if (!Array.isArray(payments) || payments.length === 0) {
+        return res.status(400).json({ message: "At least one payment method is required" });
+    }
+
+    const normalizedCustomerName = String((customer && customer.customerName) || "Walk-in Customer").trim() || "Walk-in Customer";
+    const normalizedContactNumber = customer && customer.contactNumber ? String(customer.contactNumber).trim() : "";
+    const normalizedEmail = customer && customer.email ? String(customer.email).trim() : "";
+    const resolvedCustomerId = customerId ? Number(customerId) : null;
+
+    if (resolvedCustomerId !== null && (!Number.isInteger(resolvedCustomerId) || resolvedCustomerId < 1)) {
+        return res.status(400).json({ message: "customerId must be valid when provided" });
+    }
+
+    if (resolvedCustomerId !== null) {
+        const customerRecord = db.prepare("SELECT id FROM customers WHERE id = ? AND userId = ?").get(resolvedCustomerId, req.user.id);
+        if (!customerRecord) {
+            return res.status(404).json({ message: "Customer not found" });
+        }
+    }
+
+    let subtotal = 0;
+    let gstTotal = 0;
+    let discountTotal = 0;
+    const invoiceItems = [];
+
+    for (const item of items) {
+        const productId = item.productId ? Number(item.productId) : null;
+        const product = productId ? db.prepare("SELECT * FROM products WHERE id = ? AND userId = ?").get(productId, req.user.id) : null;
+        const qty = Number(item.quantity || 1);
+        const unitPrice = Number(item.unitPrice ?? item.price ?? 0);
+        const gstPercent = Number(item.gstPercent ?? item.gst ?? 0);
+        const discountPercent = Number(item.discountPercent ?? item.discount ?? 0);
+
+        if (!Number.isFinite(qty) || qty <= 0) {
+            return res.status(400).json({ message: "Each billing item must have a valid quantity" });
+        }
+
+        if (!product && !item.productName) {
+            return res.status(400).json({ message: "Each billing item must include a product or product name" });
+        }
+
+        if (product) {
+            if (qty > Number(product.stock || 0)) {
+                return res.status(400).json({ message: `Insufficient stock for ${product.productName}` });
+            }
+        }
+
+        const itemSubtotal = unitPrice * qty;
+        const itemGst = itemSubtotal * (gstPercent / 100);
+        const itemDiscount = itemSubtotal * (discountPercent / 100);
+        const lineTotal = itemSubtotal + itemGst - itemDiscount;
+
+        subtotal += itemSubtotal;
+        gstTotal += itemGst;
+        discountTotal += itemDiscount;
+
+        invoiceItems.push({
+            productId,
+            productName: String(item.productName || product?.productName || "Product").trim(),
+            sku: String(item.sku || product?.barcode || "").trim(),
+            quantity: qty,
+            unitPrice,
+            gstPercent,
+            discountPercent,
+            lineTotal,
+        });
+    }
+
+    const total = subtotal + gstTotal - discountTotal;
+    const paymentTotal = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+
+    if (paymentTotal < total - 0.01) {
+        return res.status(400).json({ message: "Payment total must cover the invoice amount" });
+    }
+
+    const status = paymentTotal >= total ? "paid" : "partial";
+    const invoiceNumber = generateInvoiceNumber();
+
+    const transaction = db.transaction(() => {
+        const invoiceResult = db.prepare(`
+            INSERT INTO invoices (
+                userId,
+                customerId,
+                customerName,
+                contactNumber,
+                email,
+                invoiceNumber,
+                subtotal,
+                gstTotal,
+                discountTotal,
+                total,
+                status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            req.user.id,
+            resolvedCustomerId,
+            normalizedCustomerName,
+            normalizedContactNumber,
+            normalizedEmail,
+            invoiceNumber,
+            subtotal,
+            gstTotal,
+            discountTotal,
+            total,
+            status
+        );
+
+        const invoiceId = Number(invoiceResult.lastInsertRowid);
+
+        const insertItem = db.prepare(`
+            INSERT INTO invoice_items (
+                userId,
+                invoiceId,
+                productId,
+                productName,
+                sku,
+                quantity,
+                unitPrice,
+                gstPercent,
+                discountPercent,
+                lineTotal
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        invoiceItems.forEach((item) => {
+            insertItem.run(
+                req.user.id,
+                invoiceId,
+                item.productId,
+                item.productName,
+                item.sku,
+                item.quantity,
+                item.unitPrice,
+                item.gstPercent,
+                item.discountPercent,
+                item.lineTotal
+            );
+
+            if (item.productId) {
+                const updated = db.prepare(`
+                    UPDATE products
+                    SET stock = stock - ?, updatedAt = CURRENT_TIMESTAMP
+                    WHERE id = ? AND userId = ? AND stock >= ?
+                `).run(item.quantity, item.productId, req.user.id, item.quantity);
+
+                if (updated.changes === 0) {
+                    throw new Error(`Insufficient stock for product ID ${item.productId}`);
+                }
+            }
+        });
+
+        const insertPayment = db.prepare(`
+            INSERT INTO invoice_payments (
+                userId,
+                invoiceId,
+                method,
+                amount
+            ) VALUES (?, ?, ?, ?)
+        `);
+
+        payments.filter((payment) => Number(payment.amount || 0) > 0).forEach((payment) => {
+            insertPayment.run(
+                req.user.id,
+                invoiceId,
+                String(payment.method || "cash").trim().toLowerCase(),
+                Number(payment.amount || 0)
+            );
+        });
+
+        return invoiceId;
+    });
+
+    try {
+        const invoiceId = transaction();
+        const invoice = db.prepare("SELECT * FROM invoices WHERE id = ? AND userId = ?").get(invoiceId, req.user.id);
+        const items = db.prepare("SELECT * FROM invoice_items WHERE invoiceId = ? AND userId = ?").all(invoiceId, req.user.id);
+        const paymentEntries = db.prepare("SELECT * FROM invoice_payments WHERE invoiceId = ? AND userId = ?").all(invoiceId, req.user.id);
+        const populatedInvoice = {
+            ...invoice,
+            items,
+            payments: paymentEntries,
+        };
+
+        const whatsappResult = await sendInvoiceWhatsApp(populatedInvoice, { ...customer, customerName: normalizedCustomerName, contactNumber: normalizedContactNumber, email: normalizedEmail }, req.user);
+
+        return res.status(201).json({
+            message: "Invoice created successfully",
+            invoice: populatedInvoice,
+            whatsapp: whatsappResult,
+        });
+    } catch (error) {
+        console.error("Invoice creation failed:", error);
+        return res.status(400).json({ message: error.message || "Unable to create invoice" });
+    }
+});
+
+app.post("/api/products", authenticateToken, (req, res) => {
+    const { productName, productPrice, sellingPrice, stock, brand, supplierId, gstPercentage, productImages, discount, barcode } = req.body;
+
+    if (!productName || productPrice === undefined || sellingPrice === undefined || stock === undefined || !supplierId || gstPercentage === undefined) {
+        return res.status(400).json({ message: "Please provide productName, productPrice, sellingPrice, stock, supplierId, and gstPercentage" });
     }
 
     const parsedProductPrice = parseNumericValue(productPrice);
     const parsedSellingPrice = parseNumericValue(sellingPrice);
     const parsedStock = Number.isInteger(Number(stock)) ? Number(stock) : 0;
+    const parsedSupplierId = supplierId === undefined || supplierId === null || supplierId === "" ? null : Number(supplierId);
+    if (parsedSupplierId === null || !Number.isInteger(parsedSupplierId) || parsedSupplierId < 1) {
+        return res.status(400).json({ message: "supplierId must be a valid supplier" });
+    }
     const parsedGstPercentage = parseNumericValue(gstPercentage);
     const parsedDiscount = parseNumericValue(discount, 0);
     const imagesJson = serializeProductImages(productImages);
     const generatedBarcode = String(barcode || generateBarcode()).trim();
+    const normalizedBrand = String(brand || "").trim();
     const stockStatus = getStockStatus(parsedStock);
 
     const result = db.prepare(`
@@ -638,19 +1238,21 @@ app.post("/api/products", authenticateToken, (req, res) => {
             sellingPrice,
             stock,
             brand,
+            supplierId,
             gstPercentage,
             productImages,
             discount,
             barcode,
             stockStatus
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         req.user.id,
         String(productName).trim(),
         parsedProductPrice,
         parsedSellingPrice,
         parsedStock,
-        String(brand).trim(),
+        normalizedBrand,
+        parsedSupplierId,
         parsedGstPercentage,
         imagesJson,
         parsedDiscount,
@@ -694,7 +1296,16 @@ app.put("/api/products/:id", authenticateToken, (req, res) => {
 
     if (req.body.brand !== undefined) {
         updates.push("brand = ?");
-        values.push(String(req.body.brand).trim());
+        values.push(String(req.body.brand || "").trim());
+    }
+
+    if (req.body.supplierId !== undefined) {
+        const parsedSupplierId = req.body.supplierId === null || req.body.supplierId === "" ? null : Number(req.body.supplierId);
+        if (parsedSupplierId === null || !Number.isInteger(parsedSupplierId) || parsedSupplierId < 1) {
+            return res.status(400).json({ message: "supplierId must be a valid supplier" });
+        }
+        updates.push("supplierId = ?");
+        values.push(parsedSupplierId);
     }
 
     if (req.body.gstPercentage !== undefined) {
@@ -758,25 +1369,43 @@ app.get("/api/products/:id/barcode", authenticateToken, (req, res) => {
     }
 
     const barcode = product.barcode || generateBarcode();
+    const sizePreset = String(req.query.size || "").toLowerCase();
+    const width = Number(req.query.width || req.query.printWidth || (() => {
+        if (sizePreset === "small") return 180;
+        if (sizePreset === "medium") return 240;
+        if (sizePreset === "large") return 320;
+        return 240;
+    })());
+    const height = Number(req.query.height || req.query.printHeight || (() => {
+        if (sizePreset === "small") return 90;
+        if (sizePreset === "medium") return 120;
+        if (sizePreset === "large") return 160;
+        return 120;
+    })());
 
     if (!product.barcode) {
         db.prepare("UPDATE products SET barcode = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND userId = ?").run(barcode, req.params.id, req.user.id);
     }
 
-    const encryptedBarcode = encryptBarcodeValue(barcode);
-    const barcodeSvg = createBarcodeSvg(encryptedBarcode, {
+    const barcodeSvg = createBarcodeSvg(barcode, {
         productName: product.productName,
         sellingPrice: product.sellingPrice,
         discount: product.discount,
+    }, {
+        width: Number.isFinite(width) && width > 0 ? width : 240,
+        height: Number.isFinite(height) && height > 0 ? height : 120,
     });
 
     return res.json({
         message: "Barcode generated successfully",
         barcode,
-        encryptedBarcode,
         format: "CODE128",
         barcodeSvg,
         productId: Number(req.params.id),
+        printSize: {
+            width: Number.isFinite(width) && width > 0 ? width : 240,
+            height: Number.isFinite(height) && height > 0 ? height : 120,
+        },
     });
 });
 

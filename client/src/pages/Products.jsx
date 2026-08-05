@@ -52,22 +52,49 @@ import {
 } from "@chakra-ui/react";
 import { LuPlus, LuPencil, LuTrash2 } from "react-icons/lu";
 import * as productService from "../services/productService";
+import * as supplierService from "../services/supplierService";
 import AppLayout from "../components/layout/AppLayout";
 
-function ProductForm({ initial, onClose, onSaved }) {
+function ProductForm({ initial, onClose, onSaved, suppliers = [] }) {
     const [form, setForm] = useState(
-        initial || { productName: "", barcode: "", brand: "", productPrice: 0, sellingPrice: 0, stock: 0, gstPercentage: 0, discount: 0 }
+        initial || { productName: "", supplierId: "", productImages: [], productPrice: 0, sellingPrice: 0, stock: 0, gstPercentage: 0, discount: 0 }
     );
     const [errors, setErrors] = useState({});
     const [saving, setSaving] = useState(false);
 
-    useEffect(() => setForm(initial || { productName: "", barcode: "", brand: "", productPrice: 0, sellingPrice: 0, stock: 0, gstPercentage: 0, discount: 0 }), [initial]);
+    useEffect(() => setForm(initial || { productName: "", supplierId: "", productImages: [], productPrice: 0, sellingPrice: 0, stock: 0, gstPercentage: 0, discount: 0 }), [initial]);
+
+    async function handleImageUpload(event) {
+        const files = Array.from(event.target.files || []);
+        if (files.length === 0) return;
+
+        const readers = files.map(
+            (file) =>
+                new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(file);
+                })
+        );
+
+        try {
+            const imageUrls = await Promise.all(readers);
+            setForm((prev) => ({
+                ...prev,
+                productImages: [...(prev.productImages || []), ...imageUrls],
+            }));
+        } catch (err) {
+            console.error("Image upload failed", err);
+            setErrors((prev) => ({ ...prev, _form: "Failed to upload one or more images." }));
+        }
+        event.target.value = "";
+    }
 
     function validate() {
         const e = {};
         if (!form.productName) e.productName = "Product name is required";
-        if (!form.barcode) e.barcode = "SKU / barcode is required";
-        if (!form.brand) e.brand = "Brand is required";
+        if (!form.supplierId) e.supplierId = "Supplier is required";
         if (form.productPrice == null || Number(form.productPrice) < 0) e.productPrice = "Price must be >= 0";
         if (form.sellingPrice == null || Number(form.sellingPrice) < 0) e.sellingPrice = "Selling price must be >= 0";
         if (form.stock == null || Number(form.stock) < 0) e.stock = "Stock must be >= 0";
@@ -81,11 +108,18 @@ function ProductForm({ initial, onClose, onSaved }) {
         if (!validate()) return;
         setSaving(true);
         try {
+            const payload = {
+                ...form,
+                brand: "",
+                barcode: undefined,
+                productImages: Array.isArray(form.productImages) ? form.productImages : [],
+            };
+
             if (initial && (initial.id || initial._id)) {
                 const id = initial.id || initial._id;
-                await productService.updateProduct(id, form);
+                await productService.updateProduct(id, payload);
             } else {
-                await productService.createProduct(form);
+                await productService.createProduct(payload);
             }
             if (onSaved) await onSaved();
             onClose && onClose();
@@ -116,16 +150,24 @@ function ProductForm({ initial, onClose, onSaved }) {
                     <FormErrorMessage>{errors.productName}</FormErrorMessage>
                 </FormControl>
 
-                <FormControl isInvalid={!!errors.barcode}>
-                    <FormLabel>SKU / Barcode</FormLabel>
-                    <Input value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} />
-                    <FormErrorMessage>{errors.barcode}</FormErrorMessage>
-                </FormControl>
-
-                <FormControl isInvalid={!!errors.brand}>
-                    <FormLabel>Brand</FormLabel>
-                    <Input value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} />
-                    <FormErrorMessage>{errors.brand}</FormErrorMessage>
+                <FormControl isInvalid={!!errors.supplierId}>
+                    <FormLabel>Supplier</FormLabel>
+                    <Select
+                        placeholder="Select supplier"
+                        value={form.supplierId ?? ""}
+                        onChange={(e) => setForm({ ...form, supplierId: e.target.value || "" })}
+                        bg="card"
+                        borderColor="border"
+                        color="white"
+                        focusBorderColor="orange.300"
+                    >
+                        {suppliers.map((supplier) => (
+                            <option key={supplier.id || supplier._id} value={supplier.id || supplier._id} style={{ background: "#0f172a", color: "white" }}>
+                                {supplier.supplierName} {supplier.companyName ? `(${supplier.companyName})` : ""}
+                            </option>
+                        ))}
+                    </Select>
+                    <FormErrorMessage>{errors.supplierId}</FormErrorMessage>
                 </FormControl>
 
                 <FormControl isInvalid={!!errors.productPrice}>
@@ -167,6 +209,31 @@ function ProductForm({ initial, onClose, onSaved }) {
                     </NumberInput>
                     <FormErrorMessage>{errors.discount}</FormErrorMessage>
                 </FormControl>
+
+                <FormControl>
+                    <FormLabel>Product images</FormLabel>
+                    <Input type="file" accept="image/*" multiple onChange={handleImageUpload} />
+                    {Array.isArray(form.productImages) && form.productImages.length > 0 && (
+                        <HStack mt={3} spacing={3} wrap="wrap">
+                            {form.productImages.map((image, index) => (
+                                <Box key={`${image}-${index}`} position="relative" w="64px" h="64px" borderRadius="md" overflow="hidden" border="1px solid" borderColor="border" bg="gray.800">
+                                    <img src={image} alt={`Product ${index + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                    <Button
+                                        size="xs"
+                                        position="absolute"
+                                        top={1}
+                                        right={1}
+                                        colorScheme="red"
+                                        variant="solid"
+                                        onClick={() => setForm((prev) => ({ ...prev, productImages: (prev.productImages || []).filter((_, idx) => idx !== index) }))}
+                                    >
+                                        ×
+                                    </Button>
+                                </Box>
+                            ))}
+                        </HStack>
+                    )}
+                </FormControl>
             </SimpleGrid>
 
             <HStack justify="end" spacing={3} mt={2}>
@@ -197,6 +264,7 @@ export default function Products() {
     const [collapsed, setCollapsed] = useState(false);
     const { isOpen, onOpen, onClose } = useDisclosure();
     const [products, setProducts] = useState([]);
+    const [suppliers, setSuppliers] = useState([]);
     const [query, setQuery] = useState("");
     const [brand, setBrand] = useState("");
     const [sort, setSort] = useState("name_asc");
@@ -206,8 +274,30 @@ export default function Products() {
     const [loading, setLoading] = useState(false);
     const [editing, setEditing] = useState(null);
     const [deleteTarget, setDeleteTarget] = useState(null);
+    const [barcodeTarget, setBarcodeTarget] = useState(null);
+    const [barcodePrintCount, setBarcodePrintCount] = useState(1);
+    const [barcodePrintSize, setBarcodePrintSize] = useState("medium");
     const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
+    const { isOpen: isBarcodeOpen, onOpen: onBarcodeOpen, onClose: onBarcodeClose } = useDisclosure();
     const cancelRef = useRef();
+
+    async function loadSuppliers() {
+        try {
+            const res = await supplierService.getSuppliers({ page: 1, limit: 1000 });
+            const payload = res?.data;
+            const rows = Array.isArray(payload)
+                ? payload
+                : Array.isArray(payload?.suppliers)
+                    ? payload.suppliers
+                    : Array.isArray(payload?.items)
+                        ? payload.items
+                        : [];
+            setSuppliers(rows);
+        } catch (err) {
+            console.error(err);
+            setSuppliers([]);
+        }
+    }
 
     async function load() {
         setLoading(true);
@@ -250,6 +340,7 @@ export default function Products() {
     }
 
     useEffect(() => { load(); }, [query, brand, sort, page, limit]);
+    useEffect(() => { loadSuppliers(); }, []);
 
     const brands = useMemo(() => {
         const set = new Set(products.map((p) => p.brand).filter(Boolean));
@@ -268,6 +359,79 @@ export default function Products() {
             load();
         } catch (err) {
             console.error(err);
+        }
+    }
+
+    function openBarcodePrint(product) {
+        setBarcodeTarget(product);
+        setBarcodePrintCount(1);
+        setBarcodePrintSize("medium");
+        onBarcodeOpen();
+    }
+
+    async function printBarcodeLabel() {
+        if (!barcodeTarget) return;
+
+        const count = Math.max(1, Number(barcodePrintCount) || 1);
+        const sizeMap = {
+            small: { width: 180, height: 90 },
+            medium: { width: 240, height: 120 },
+            large: { width: 320, height: 160 },
+        };
+        const selectedSize = sizeMap[barcodePrintSize] || sizeMap.medium;
+
+        try {
+            const res = await productService.getBarcodeForProduct(barcodeTarget.id || barcodeTarget._id, {
+                size: barcodePrintSize,
+                width: selectedSize.width,
+                height: selectedSize.height,
+            });
+
+            const barcodeSvg = res?.data?.barcodeSvg;
+            if (!barcodeSvg) {
+                throw new Error("Barcode markup not returned");
+            }
+
+            const printWindow = window.open("", "_blank", "width=900,height=700");
+            if (!printWindow) {
+                window.alert("Popup blocked. Please allow popups to print barcode labels.");
+                return;
+            }
+
+            const cards = Array.from({ length: count }, (_, index) => `
+                <div class="label-card" style="page-break-inside: avoid; margin: 12px 0; text-align: center;">
+                    <div style="font-size: 12px; font-weight: 600; margin-bottom: 8px;">${barcodeTarget.productName || "Product"}</div>
+                    <div style="display: flex; justify-content: center; align-items: center; padding: 6px;">${barcodeSvg}</div>
+                    <div style="font-size: 12px; margin-top: 4px;">${barcodeTarget.barcode || "No barcode"}</div>
+                </div>
+            `).join("");
+
+            printWindow.document.write(`
+                <html>
+                  <head>
+                    <title>Print Barcode</title>
+                    <style>
+                      body { font-family: Arial, sans-serif; margin: 18px; background: white; color: black; }
+                      .label-card { width: ${selectedSize.width}px; min-height: ${selectedSize.height + 34}px; border: 1px solid #ddd; padding: 10px; display: inline-block; margin: 8px; }
+                      @media print { body { margin: 0; } .label-card { border: none; box-shadow: none; } }
+                    </style>
+                  </head>
+                  <body>
+                    ${cards}
+                    <script>
+                      window.onload = () => setTimeout(() => {
+                        window.print();
+                        window.close();
+                      }, 200);
+                    </script>
+                  </body>
+                </html>
+            `);
+            printWindow.document.close();
+            onBarcodeClose();
+        } catch (error) {
+            console.error("Barcode print failed", error);
+            window.alert("Unable to generate barcode for printing.");
         }
     }
 
@@ -324,25 +488,39 @@ export default function Products() {
                     <Table variant="simple" size="sm">
                         <Thead>
                             <Tr>
-                                <Th>Name</Th><Th>SKU</Th><Th>Brand</Th><Th>Price</Th><Th>Stock</Th><Th>Actions</Th>
+                                <Th>Image</Th><Th>Name</Th><Th>SKU</Th><Th>Supplier</Th><Th>Price</Th><Th>Stock</Th><Th>Actions</Th>
                             </Tr>
                         </Thead>
                         <Tbody>
-                            {products.map((p) => (
-                                <Tr key={p.id || p._id}>
-                                    <Td><Text fontWeight={600}>{p.productName}</Text></Td>
-                                    <Td>{p.barcode}</Td>
-                                    <Td>{p.brand}</Td>
-                                    <Td>{p.productPrice?.toFixed ? p.productPrice.toFixed(2) : p.productPrice}</Td>
-                                    <Td>{p.stock}</Td>
-                                    <Td>
-                                        <HStack>
-                                            <IconButton aria-label="Edit product" icon={<LuPencil />} size="sm" colorScheme="orange" variant="outline" onClick={() => openEdit(p)} />
-                                            <IconButton aria-label="Delete product" icon={<LuTrash2 />} size="sm" colorScheme="red" variant="outline" onClick={() => { setDeleteTarget(p); onDeleteOpen(); }} />
-                                        </HStack>
-                                    </Td>
-                                </Tr>
-                            ))}
+                            {products.map((p) => {
+                                const supplier = suppliers.find((item) => String(item.id || item._id) === String(p.supplierId));
+                                const productImage = Array.isArray(p.productImages) && p.productImages.length > 0 ? p.productImages[0] : "";
+                                return (
+                                    <Tr key={p.id || p._id}>
+                                        <Td>
+                                            {productImage ? (
+                                                <Box w="48px" h="48px" borderRadius="md" overflow="hidden" border="1px solid" borderColor="border" bg="gray.800">
+                                                    <img src={productImage} alt={p.productName} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                                </Box>
+                                            ) : (
+                                                <Box w="48px" h="48px" borderRadius="md" border="1px dashed" borderColor="border" display="flex" alignItems="center" justifyContent="center" color="muted">No image</Box>
+                                            )}
+                                        </Td>
+                                        <Td><Text fontWeight={600}>{p.productName}</Text></Td>
+                                        <Td>{p.barcode}</Td>
+                                        <Td>{supplier ? `${supplier.supplierName}${supplier.companyName ? ` (${supplier.companyName})` : ""}` : "—"}</Td>
+                                        <Td>{p.productPrice?.toFixed ? p.productPrice.toFixed(2) : p.productPrice}</Td>
+                                        <Td>{p.stock}</Td>
+                                        <Td>
+                                            <HStack>
+                                                <IconButton aria-label="Edit product" icon={<LuPencil />} size="sm" colorScheme="orange" variant="outline" onClick={() => openEdit(p)} />
+                                                <Button size="sm" colorScheme="orange" variant="outline" onClick={() => openBarcodePrint(p)}>Print barcode</Button>
+                                                <IconButton aria-label="Delete product" icon={<LuTrash2 />} size="sm" colorScheme="red" variant="outline" onClick={() => { setDeleteTarget(p); onDeleteOpen(); }} />
+                                            </HStack>
+                                        </Td>
+                                    </Tr>
+                                );
+                            })}
                         </Tbody>
                     </Table>
                 )}
@@ -363,7 +541,7 @@ export default function Products() {
                     <ModalHeader>{editing ? "Edit product" : "Add product"}</ModalHeader>
                     <ModalCloseButton />
                     <ModalBody p={6}>
-                        <ProductForm initial={editing} onClose={onClose} onSaved={load} />
+                        <ProductForm initial={editing} onClose={onClose} onSaved={load} suppliers={suppliers} />
                     </ModalBody>
                     <ModalFooter />
                 </ModalContent>
@@ -383,6 +561,44 @@ export default function Products() {
                     </AlertDialogContent>
                 </AlertDialogOverlay>
             </AlertDialog>
+
+            <Modal isOpen={isBarcodeOpen} onClose={onBarcodeClose} size="md">
+                <ModalOverlay />
+                <ModalContent>
+                    <ModalHeader>Print barcode</ModalHeader>
+                    <ModalCloseButton />
+                    <ModalBody>
+                        {barcodeTarget && (
+                            <VStack spacing={4} align="stretch">
+                                <Box bg="card" border="1px solid" borderColor="border" borderRadius="md" p={3}>
+                                    <Text fontWeight={700}>{barcodeTarget.productName}</Text>
+                                    <Text fontSize="sm" color="muted">{barcodeTarget.barcode || "No barcode assigned yet"}</Text>
+                                </Box>
+
+                                <FormControl>
+                                    <FormLabel>Number of copies</FormLabel>
+                                    <NumberInput min={1} max={100} value={barcodePrintCount} onChange={(value) => setBarcodePrintCount(Number(value) || 1)}>
+                                        <NumberInputField />
+                                    </NumberInput>
+                                </FormControl>
+
+                                <FormControl>
+                                    <FormLabel>Print size</FormLabel>
+                                    <Select value={barcodePrintSize} onChange={(e) => setBarcodePrintSize(e.target.value)} bg="card" borderColor="border" color="white">
+                                        <option value="small" style={{ background: "#0f172a", color: "white" }}>Small</option>
+                                        <option value="medium" style={{ background: "#0f172a", color: "white" }}>Medium</option>
+                                        <option value="large" style={{ background: "#0f172a", color: "white" }}>Large</option>
+                                    </Select>
+                                </FormControl>
+                            </VStack>
+                        )}
+                    </ModalBody>
+                    <ModalFooter>
+                        <Button variant="outline" onClick={onBarcodeClose}>Cancel</Button>
+                        <Button colorScheme="orange" onClick={printBarcodeLabel}>Print</Button>
+                    </ModalFooter>
+                </ModalContent>
+            </Modal>
         </AppLayout>
     );
 }

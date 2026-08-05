@@ -8,6 +8,8 @@ import Dashboard from "./pages/Dashboard";
 import Products from "./pages/Products";
 import Customers from "./pages/Customers";
 import Suppliers from "./pages/Suppliers";
+import Billing from "./pages/Billing";
+import InvoiceHistory from "./pages/InvoiceHistory";
 import PageTransition from "./components/layout/PageTransition";
 import { ROUTES } from "./constants/routes";
 
@@ -23,6 +25,8 @@ export default function App() {
           <Route path={ROUTES.PRODUCTS} element={<PageTransition><Products /></PageTransition>} />
           <Route path={ROUTES.CUSTOMERS} element={<PageTransition><Customers /></PageTransition>} />
           <Route path={ROUTES.SUPPLIERS} element={<PageTransition><Suppliers /></PageTransition>} />
+          <Route path={ROUTES.BILLING} element={<PageTransition><Billing /></PageTransition>} />
+          <Route path={ROUTES.REPORTS} element={<PageTransition><InvoiceHistory /></PageTransition>} />
           <Route path="*" element={<Navigate to={ROUTES.LOGIN} replace />} />
         </Routes>
       </AnimatePresence>

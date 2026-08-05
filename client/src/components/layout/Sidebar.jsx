@@ -13,6 +13,8 @@ import {
     Tooltip,
     VStack,
 } from "@chakra-ui/react";
+import { useRef, useState } from "react";
+import { LuDownload, LuUpload, LuDatabaseBackup } from "react-icons/lu";
 import {
     LuChartColumn,
     LuChevronLeft,
@@ -28,9 +30,11 @@ import { useNavigate } from "react-router-dom";
 
 import Logo from "../ui/Logo";
 import { ROUTES } from "../../constants/routes";
+import { exportDatabase, importDatabase, logoutUser } from "../../services/authService";
 
 export const NAV_ITEMS = [
     { name: "Dashboard", icon: LuLayoutDashboard, route: ROUTES.DASHBOARD },
+    { name: "Billing", icon: LuReceipt, route: ROUTES.BILLING },
     { name: "Products", icon: LuPackage, route: ROUTES.PRODUCTS },
     { name: "Customers", icon: LuUsers, route: ROUTES.CUSTOMERS },
     { name: "Suppliers", icon: LuTruck, route: ROUTES.SUPPLIERS },
@@ -40,11 +44,88 @@ export const NAV_ITEMS = [
 export default function Sidebar({ collapsed, onToggle, activePath }) {
     const navigate = useNavigate();
     const user = JSON.parse(localStorage.getItem("authUser") || "null");
+    const fileInputRef = useRef(null);
+    const [isUploading, setIsUploading] = useState(false);
 
-    function handleLogout() {
-        localStorage.removeItem("authToken");
-        localStorage.removeItem("authUser");
-        navigate(ROUTES.LOGIN, { replace: true });
+    async function handleLogout() {
+        const token = localStorage.getItem("authToken");
+
+        try {
+            if (token) {
+                await logoutUser(token);
+            }
+        } catch (error) {
+            console.warn("Logout backup failed, continuing logout:", error?.response?.data || error.message);
+        } finally {
+            localStorage.removeItem("authToken");
+            localStorage.removeItem("authUser");
+            navigate(ROUTES.LOGIN, { replace: true });
+        }
+    }
+
+    async function handleExportDatabase() {
+        const token = localStorage.getItem("authToken");
+
+        if (!token) {
+            return;
+        }
+
+        try {
+            const response = await exportDatabase(token);
+            const backupFile = response?.backup?.fileName;
+
+            if (!backupFile) {
+                return;
+            }
+
+            const fileResponse = await fetch(`${window.location.origin}/api/db/download/${encodeURIComponent(backupFile)}`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+
+            if (!fileResponse.ok) {
+                throw new Error("Unable to download backup file");
+            }
+
+            const blob = await fileResponse.blob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = backupFile;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error("Database export failed:", error?.response?.data || error.message);
+            alert("Database export failed. Please try again.");
+        }
+    }
+
+    async function handleImportDatabase(event) {
+        const file = event.target.files?.[0];
+        if (!file) {
+            return;
+        }
+
+        const token = localStorage.getItem("authToken");
+        if (!token) {
+            event.target.value = "";
+            return;
+        }
+
+        setIsUploading(true);
+
+        try {
+            const response = await importDatabase(file, token);
+            alert(response?.data?.message || "Database imported successfully");
+            window.location.reload();
+        } catch (error) {
+            console.error("Database import failed:", error?.response?.data || error.message);
+            alert(error?.response?.data?.message || "Database import failed. Please try again.");
+        } finally {
+            setIsUploading(false);
+            event.target.value = "";
+        }
     }
 
     return (
@@ -161,10 +242,43 @@ export default function Sidebar({ collapsed, onToggle, activePath }) {
                             <MenuList
                                 bg="surface"
                                 borderColor="border"
-                                minW="180px"
+                                minW="220px"
                                 zIndex="popover"
                                 boxShadow="lg"
                             >
+                                <MenuItem
+                                    icon={<LuDatabaseBackup />}
+                                    onClick={handleExportDatabase}
+                                    bg="surface"
+                                    color="white"
+                                    whiteSpace="nowrap"
+                                    _hover={{ bg: "card" }}
+                                    _focus={{ bg: "card" }}
+                                >
+                                    Export Database Backup
+                                </MenuItem>
+                                <MenuItem
+                                    icon={<LuUpload />}
+                                    onClick={() => fileInputRef.current?.click()}
+                                    bg="surface"
+                                    color="white"
+                                    whiteSpace="nowrap"
+                                    _hover={{ bg: "card" }}
+                                    _focus={{ bg: "card" }}
+                                >
+                                    {isUploading ? "Importing..." : "Import Database"}
+                                </MenuItem>
+                                <MenuItem
+                                    icon={<LuDownload />}
+                                    onClick={handleExportDatabase}
+                                    bg="surface"
+                                    color="white"
+                                    whiteSpace="nowrap"
+                                    _hover={{ bg: "card" }}
+                                    _focus={{ bg: "card" }}
+                                >
+                                    Download Backup
+                                </MenuItem>
                                 <MenuItem
                                     icon={<LuLogOut />}
                                     onClick={handleLogout}
@@ -181,6 +295,13 @@ export default function Sidebar({ collapsed, onToggle, activePath }) {
                     </Menu>
                 </Box>
             </Box>
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept=".sqlite,.db,.sqlite3"
+                hidden
+                onChange={handleImportDatabase}
+            />
         </Box>
     );
 }

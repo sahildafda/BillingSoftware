@@ -136,10 +136,7 @@ export default function LoginForm() {
                     </Box>
 
                     <HStack justify="space-between" w="100%" mt={1} color="gray.400">
-                        <Checkbox colorScheme="orange" size="md">
-                            Remember me
-                        </Checkbox>
-
+                        
                         <Link color="primary" fontSize="sm" _hover={{ color: "primaryHover" }} onClick={handleForgotPassword}>
                             {isResetting ? "Resetting..." : "Forgot password?"}
                         </Link>
