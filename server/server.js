@@ -10,6 +10,8 @@ const nodemailer = require("nodemailer");
 const twilio = require("twilio");
 const bwipjs = require("bwip-js");
 const multer = require("multer");
+const cron = require("node-cron");
+const PDFDocument = require("pdfkit");
 const Database = require("better-sqlite3");
 const { createDatabaseBackup, initializeBackupScheduler, resolveBackupHour } = require("./dbBackup");
 
@@ -487,6 +489,1080 @@ async function restoreDatabaseFromFile(filePath) {
     db = new Database(targetPath);
     backupScheduler.setDatabase(db);
     console.log("[DB Restore] Database replaced from backup file");
+}
+
+function createEmailTransporter() {
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+        return null;
+    }
+
+    return nodemailer.createTransport({
+        host: process.env.EMAIL_HOST || "smtp.gmail.com",
+        port: Number(process.env.EMAIL_PORT || 587),
+        secure: Number(process.env.EMAIL_PORT || 587) === 465,
+        auth: {
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASS,
+        },
+    });
+}
+
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function generateDailySummaryEmail(user, report) {
+    const invoiceRows = report.invoices.length
+        ? report.invoices.map((invoice) => {
+            const products = invoice.items
+                .map(
+                    (item) =>
+                        `${escapeHtml(item.productName)} × ${item.quantity}`
+                )
+                .join("<br>");
+
+            return `
+                <tr>
+                    <td>
+                        <strong>
+                            ${escapeHtml(invoice.invoiceNumber)}
+                        </strong>
+                    </td>
+
+                    <td>
+                        ${escapeHtml(invoice.customerName)}
+                    </td>
+
+                    <td>
+                        ${products || "-"}
+                    </td>
+
+                    <td>
+                        ${invoice.items.reduce(
+                (sum, item) => sum + Number(item.quantity || 0),
+                0
+            )}
+                    </td>
+
+                    <td>
+                        ${formatCurrency(invoice.subtotal)}
+                    </td>
+
+                    <td>
+                        ${formatCurrency(invoice.gstTotal)}
+                    </td>
+
+                    <td>
+                        ${formatCurrency(invoice.discountTotal)}
+                    </td>
+
+                    <td>
+                        <strong>
+                            ${formatCurrency(invoice.total)}
+                        </strong>
+                    </td>
+
+                    <td>
+                        ${escapeHtml(invoice.paymentMethods || "-")}
+                    </td>
+                </tr>
+            `;
+        }).join("")
+        : `
+            <tr>
+                <td colspan="9" style="text-align:center;padding:30px;">
+                    No orders were created today.
+                </td>
+            </tr>
+        `;
+
+    return `
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+<meta charset="UTF-8">
+
+<style>
+
+body {
+    margin: 0;
+    padding: 0;
+    background: #f4f4f4;
+    font-family: Arial, Helvetica, sans-serif;
+    color: #222;
+}
+
+.container {
+    max-width: 1100px;
+    margin: 30px auto;
+    background: #ffffff;
+    border: 1px solid #e5e5e5;
+}
+
+.header {
+    background: #111111;
+    color: #ffffff;
+    padding: 30px;
+}
+
+.header h1 {
+    margin: 0 0 8px;
+    font-size: 26px;
+}
+
+.header p {
+    margin: 0;
+    color: #cccccc;
+}
+
+.content {
+    padding: 30px;
+}
+
+.stats {
+    display: table;
+    width: 100%;
+    border-spacing: 8px;
+    margin-left: -8px;
+    margin-right: -8px;
+}
+
+.stat {
+    display: table-cell;
+    width: 25%;
+    background: #f7f7f7;
+    border: 1px solid #eeeeee;
+    padding: 16px;
+}
+
+.stat-label {
+    font-size: 11px;
+    color: #777777;
+    margin-bottom: 7px;
+}
+
+.stat-value {
+    font-size: 20px;
+    font-weight: bold;
+}
+
+.section-title {
+    font-size: 18px;
+    font-weight: bold;
+    margin: 30px 0 15px;
+}
+
+.payment-box {
+    display: table;
+    width: 100%;
+    border-spacing: 8px;
+    margin-left: -8px;
+}
+
+.payment {
+    display: table-cell;
+    padding: 15px;
+    background: #fafafa;
+    border: 1px solid #eeeeee;
+}
+
+.payment-label {
+    font-size: 11px;
+    color: #777777;
+}
+
+.payment-value {
+    margin-top: 5px;
+    font-weight: bold;
+    font-size: 16px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+}
+
+th {
+    padding: 10px 7px;
+    background: #f5f5f5;
+    border-bottom: 1px solid #dddddd;
+    text-align: left;
+}
+
+td {
+    padding: 10px 7px;
+    border-bottom: 1px solid #eeeeee;
+    vertical-align: top;
+}
+
+.total-box {
+    margin-top: 25px;
+    padding: 20px;
+    background: #111111;
+    color: #ffffff;
+    text-align: right;
+}
+
+.total-label {
+    font-size: 12px;
+    color: #cccccc;
+}
+
+.total-value {
+    font-size: 24px;
+    font-weight: bold;
+    margin-top: 5px;
+}
+
+.footer {
+    padding: 20px;
+    text-align: center;
+    color: #888888;
+    font-size: 11px;
+    background: #fafafa;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="container">
+
+    <div class="header">
+
+        <h1>
+            Daily Sales Report
+        </h1>
+
+        <p>
+            ${escapeHtml(user.companyName)}
+            ·
+            ${escapeHtml(report.date)}
+        </p>
+
+    </div>
+
+    <div class="content">
+
+        <div class="stats">
+
+            <div class="stat">
+                <div class="stat-label">
+                    Customers Visited
+                </div>
+
+                <div class="stat-value">
+                    ${report.customersVisited}
+                </div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-label">
+                    New Customers
+                </div>
+
+                <div class="stat-value">
+                    ${report.newCustomers}
+                </div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-label">
+                    Orders
+                </div>
+
+                <div class="stat-value">
+                    ${report.orders}
+                </div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-label">
+                    Products Sold
+                </div>
+
+                <div class="stat-value">
+                    ${report.productsSold}
+                </div>
+            </div>
+
+        </div>
+
+        <div class="stats">
+
+            <div class="stat">
+                <div class="stat-label">
+                    Gross Sales
+                </div>
+
+                <div class="stat-value">
+                    ${formatCurrency(report.grossSales)}
+                </div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-label">
+                    GST Collected
+                </div>
+
+                <div class="stat-value">
+                    ${formatCurrency(report.gstCollected)}
+                </div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-label">
+                    Discounts
+                </div>
+
+                <div class="stat-value">
+                    ${formatCurrency(report.discounts)}
+                </div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-label">
+                    Net Revenue
+                </div>
+
+                <div class="stat-value">
+                    ${formatCurrency(report.netRevenue)}
+                </div>
+            </div>
+
+        </div>
+
+
+        <div class="section-title">
+            Payment Summary
+        </div>
+
+        <div class="payment-box">
+
+            <div class="payment">
+                <div class="payment-label">
+                    CASH
+                </div>
+
+                <div class="payment-value">
+                    ${formatCurrency(report.cashReceived)}
+                </div>
+            </div>
+
+            <div class="payment">
+                <div class="payment-label">
+                    UPI
+                </div>
+
+                <div class="payment-value">
+                    ${formatCurrency(report.upiReceived)}
+                </div>
+            </div>
+
+            <div class="payment">
+                <div class="payment-label">
+                    CARD
+                </div>
+
+                <div class="payment-value">
+                    ${formatCurrency(report.cardReceived)}
+                </div>
+            </div>
+
+            <div class="payment">
+                <div class="payment-label">
+                    OTHER
+                </div>
+
+                <div class="payment-value">
+                    ${formatCurrency(report.otherReceived)}
+                </div>
+            </div>
+
+            <div class="payment">
+                <div class="payment-label">
+                    OUTSTANDING
+                </div>
+
+                <div class="payment-value">
+                    ${formatCurrency(report.outstanding)}
+                </div>
+            </div>
+
+        </div>
+
+
+        <div class="section-title">
+            Invoice Breakdown
+        </div>
+
+        <table>
+
+            <thead>
+
+                <tr>
+                    <th>Invoice</th>
+                    <th>Customer</th>
+                    <th>Products</th>
+                    <th>Qty</th>
+                    <th>Subtotal</th>
+                    <th>GST</th>
+                    <th>Discount</th>
+                    <th>Total</th>
+                    <th>Payment</th>
+                </tr>
+
+            </thead>
+
+            <tbody>
+
+                ${invoiceRows}
+
+            </tbody>
+
+        </table>
+
+
+        <div class="total-box">
+
+            <div class="total-label">
+                Net Revenue
+            </div>
+
+            <div class="total-value">
+                ${formatCurrency(report.netRevenue)}
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <div class="footer">
+
+        Daily sales report generated automatically by
+        ${escapeHtml(user.companyName)}.
+
+        <br>
+
+        PDF report is attached to this email.
+
+    </div>
+
+</div>
+
+</body>
+
+</html>
+`;
+}
+
+async function sendDailySummaryEmail(userId) {
+    const user = db.prepare(`
+        SELECT
+            id,
+            companyName,
+            ownerName,
+            email
+        FROM users
+        WHERE id = ?
+    `).get(userId);
+
+    if (!user) {
+        throw new Error("User not found");
+    }
+
+    if (!user.email) {
+        throw new Error("User does not have an email address");
+    }
+
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+        throw new Error(
+            "EMAIL_USER and EMAIL_PASS are not configured"
+        );
+    }
+
+    const report = getTodaySalesReport(userId);
+
+    const html = generateDailySummaryEmail(
+        user,
+        report
+    );
+
+    const pdfBuffer = await generateDailySalesPdf(
+        user,
+        report
+    );
+
+    const transporter = nodemailer.createTransport({
+        host: process.env.EMAIL_HOST || "smtp.gmail.com",
+
+        port: Number(
+            process.env.EMAIL_PORT || 587
+        ),
+
+        secure:
+            Number(
+                process.env.EMAIL_PORT || 587
+            ) === 465,
+
+        auth: {
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASS,
+        },
+    });
+
+    const pdfFileName =
+        `Daily-Sales-${report.date}.pdf`;
+
+    const info = await transporter.sendMail({
+        from:
+            process.env.EMAIL_FROM ||
+            process.env.EMAIL_USER,
+
+        to: user.email,
+
+        subject:
+            `Daily Sales Report - ${report.date} - ${user.companyName}`,
+
+        html,
+
+        attachments: [
+            {
+                filename: pdfFileName,
+                content: pdfBuffer,
+                contentType: "application/pdf",
+            },
+        ],
+    });
+
+    console.log(
+        `[Daily Summary] Email sent to ${user.email}: ${info.messageId}`
+    );
+
+    return {
+        success: true,
+        messageId: info.messageId,
+        recipient: user.email,
+        pdfFileName,
+        report,
+    };
+}
+
+function getTodayDateString() {
+    return new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Kolkata",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).format(new Date());
+}
+
+function getTodaySalesReport(userId) {
+    const today = getTodayDateString();
+
+    // ----------------------------------------
+    // BASIC SALES SUMMARY
+    // ----------------------------------------
+
+    const sales = db.prepare(`
+        SELECT
+            COUNT(*) AS orders,
+            COALESCE(SUM(subtotal), 0) AS grossSales,
+            COALESCE(SUM(gstTotal), 0) AS gstCollected,
+            COALESCE(SUM(discountTotal), 0) AS discounts,
+            COALESCE(SUM(total), 0) AS netRevenue
+        FROM invoices
+        WHERE userId = ?
+          AND DATE(createdAt, '+5 hours', '+30 minutes') = ?
+    `).get(userId, today);
+
+    // ----------------------------------------
+    // PRODUCTS SOLD
+    // ----------------------------------------
+
+    const products = db.prepare(`
+        SELECT
+            COALESCE(SUM(ii.quantity), 0) AS productsSold
+        FROM invoice_items ii
+        INNER JOIN invoices i
+            ON i.id = ii.invoiceId
+        WHERE ii.userId = ?
+          AND DATE(i.createdAt, '+5 hours', '+30 minutes') = ?
+    `).get(userId, today);
+
+    // ----------------------------------------
+    // CUSTOMERS VISITED
+    //
+    // Registered customers = distinct customerId
+    // Walk-in customers = each invoice without customerId
+    // ----------------------------------------
+
+    const customers = db.prepare(`
+        SELECT COUNT(*) AS customersVisited
+        FROM (
+            SELECT DISTINCT
+                CASE
+                    WHEN customerId IS NOT NULL
+                        THEN 'customer-' || customerId
+                    ELSE
+                        'walkin-' || id
+                END AS customerKey
+            FROM invoices
+            WHERE userId = ?
+              AND DATE(createdAt, '+5 hours', '+30 minutes') = ?
+        )
+    `).get(userId, today);
+
+    // ----------------------------------------
+    // NEW CUSTOMERS
+    // ----------------------------------------
+
+    const newCustomers = db.prepare(`
+        SELECT COUNT(*) AS newCustomers
+        FROM customers
+        WHERE userId = ?
+          AND DATE(createdAt, '+5 hours', '+30 minutes') = ?
+    `).get(userId, today);
+
+    // ----------------------------------------
+    // PAYMENT SUMMARY
+    // ----------------------------------------
+
+    const paymentRows = db.prepare(`
+        SELECT
+            LOWER(method) AS method,
+            COALESCE(SUM(amount), 0) AS amount
+        FROM invoice_payments
+        WHERE userId = ?
+          AND DATE(createdAt, '+5 hours', '+30 minutes') = ?
+        GROUP BY LOWER(method)
+    `).all(userId, today);
+
+    const payments = {
+        cash: 0,
+        upi: 0,
+        card: 0,
+        other: 0,
+    };
+
+    paymentRows.forEach((payment) => {
+        const method = String(payment.method || "").toLowerCase();
+        const amount = Number(payment.amount || 0);
+
+        if (method === "cash") {
+            payments.cash += amount;
+        } else if (method === "upi") {
+            payments.upi += amount;
+        } else if (
+            method === "card" ||
+            method === "credit_card" ||
+            method === "debit_card"
+        ) {
+            payments.card += amount;
+        } else {
+            payments.other += amount;
+        }
+    });
+
+    // ----------------------------------------
+    // OUTSTANDING
+    //
+    // Invoice total - payments made against
+    // today's invoices.
+    // ----------------------------------------
+
+    const outstandingResult = db.prepare(`
+        SELECT
+            COALESCE(
+                SUM(
+                    CASE
+                        WHEN i.total > COALESCE(p.paidAmount, 0)
+                        THEN i.total - COALESCE(p.paidAmount, 0)
+                        ELSE 0
+                    END
+                ),
+                0
+            ) AS outstanding
+        FROM invoices i
+        LEFT JOIN (
+            SELECT
+                invoiceId,
+                SUM(amount) AS paidAmount
+            FROM invoice_payments
+            WHERE userId = ?
+            GROUP BY invoiceId
+        ) p
+            ON p.invoiceId = i.id
+        WHERE i.userId = ?
+          AND DATE(i.createdAt, '+5 hours', '+30 minutes') = ?
+    `).get(userId, userId, today);
+
+    // ----------------------------------------
+    // TODAY'S INVOICES
+    // ----------------------------------------
+
+    const invoices = db.prepare(`
+        SELECT
+            i.id,
+            i.invoiceNumber,
+            i.customerName,
+            i.contactNumber,
+            i.email,
+            i.subtotal,
+            i.gstTotal,
+            i.discountTotal,
+            i.total,
+            i.status,
+            i.createdAt
+        FROM invoices i
+        WHERE i.userId = ?
+          AND DATE(i.createdAt, '+5 hours', '+30 minutes') = ?
+        ORDER BY i.createdAt ASC
+    `).all(userId, today);
+
+    // ----------------------------------------
+    // INVOICE ITEMS
+    // ----------------------------------------
+
+    const items = db.prepare(`
+        SELECT
+            invoiceId,
+            productName,
+            sku,
+            quantity,
+            unitPrice,
+            gstPercent,
+            discountPercent,
+            lineTotal
+        FROM invoice_items
+        WHERE userId = ?
+          AND invoiceId IN (
+              SELECT id
+              FROM invoices
+              WHERE userId = ?
+                AND DATE(createdAt, '+5 hours', '+30 minutes') = ?
+          )
+        ORDER BY invoiceId ASC
+    `).all(userId, userId, today);
+
+    // ----------------------------------------
+    // PAYMENT METHODS PER INVOICE
+    // ----------------------------------------
+
+    const invoicePayments = db.prepare(`
+        SELECT
+            invoiceId,
+            method,
+            SUM(amount) AS amount
+        FROM invoice_payments
+        WHERE userId = ?
+          AND invoiceId IN (
+              SELECT id
+              FROM invoices
+              WHERE userId = ?
+                AND DATE(createdAt, '+5 hours', '+30 minutes') = ?
+          )
+        GROUP BY invoiceId, method
+    `).all(userId, userId, today);
+
+    const itemsMap = {};
+    const paymentsMap = {};
+
+    items.forEach((item) => {
+        if (!itemsMap[item.invoiceId]) {
+            itemsMap[item.invoiceId] = [];
+        }
+
+        itemsMap[item.invoiceId].push(item);
+    });
+
+    invoicePayments.forEach((payment) => {
+        if (!paymentsMap[payment.invoiceId]) {
+            paymentsMap[payment.invoiceId] = [];
+        }
+
+        paymentsMap[payment.invoiceId].push({
+            method: payment.method,
+            amount: Number(payment.amount || 0),
+        });
+    });
+
+    const formattedInvoices = invoices.map((invoice) => {
+        const invoicePaymentList = paymentsMap[invoice.id] || [];
+
+        return {
+            ...invoice,
+
+            subtotal: Number(invoice.subtotal || 0),
+            gstTotal: Number(invoice.gstTotal || 0),
+            discountTotal: Number(invoice.discountTotal || 0),
+            total: Number(invoice.total || 0),
+
+            items: itemsMap[invoice.id] || [],
+
+            payments: invoicePaymentList,
+
+            paymentMethods: invoicePaymentList
+                .map(
+                    (payment) =>
+                        `${String(payment.method).toUpperCase()}: ${formatCurrency(payment.amount)}`
+                )
+                .join(" / "),
+        };
+    });
+
+    return {
+        date: today,
+
+        customersVisited: Number(
+            customers?.customersVisited || 0
+        ),
+
+        newCustomers: Number(
+            newCustomers?.newCustomers || 0
+        ),
+
+        orders: Number(
+            sales?.orders || 0
+        ),
+
+        productsSold: Number(
+            products?.productsSold || 0
+        ),
+
+        grossSales: Number(
+            sales?.grossSales || 0
+        ),
+
+        gstCollected: Number(
+            sales?.gstCollected || 0
+        ),
+
+        discounts: Number(
+            sales?.discounts || 0
+        ),
+
+        netRevenue: Number(
+            sales?.netRevenue || 0
+        ),
+
+        cashReceived: payments.cash,
+        upiReceived: payments.upi,
+        cardReceived: payments.card,
+        otherReceived: payments.other,
+
+        outstanding: Number(
+            outstandingResult?.outstanding || 0
+        ),
+
+        invoices: formattedInvoices,
+    };
+}
+
+function generateDailySalesPdf(user, report) {
+    return new Promise((resolve, reject) => {
+        const doc = new PDFDocument({
+            size: "A4",
+            margin: 40,
+        });
+
+        const chunks = [];
+
+        doc.on("data", (chunk) => {
+            chunks.push(chunk);
+        });
+
+        doc.on("end", () => {
+            resolve(Buffer.concat(chunks));
+        });
+
+        doc.on("error", reject);
+
+        // ----------------------------------------
+        // HEADER
+        // ----------------------------------------
+
+        doc
+            .fontSize(22)
+            .font("Helvetica-Bold")
+            .text("Daily Sales Report");
+
+        doc
+            .moveDown(0.3)
+            .fontSize(11)
+            .font("Helvetica")
+            .text(user.companyName);
+
+        doc
+            .fontSize(10)
+            .fillColor("#666666")
+            .text(`Date: ${report.date}`);
+
+        doc.moveDown();
+
+        // ----------------------------------------
+        // SUMMARY BOX
+        // ----------------------------------------
+
+        doc
+            .fillColor("#000000")
+            .fontSize(15)
+            .font("Helvetica-Bold")
+            .text("Sales Summary");
+
+        doc.moveDown(0.5);
+
+        const summaryRows = [
+            ["Customers Visited", report.customersVisited],
+            ["New Customers", report.newCustomers],
+            ["Orders", report.orders],
+            ["Products Sold", report.productsSold],
+            ["Gross Sales", formatCurrency(report.grossSales)],
+            ["GST Collected", formatCurrency(report.gstCollected)],
+            ["Discounts", formatCurrency(report.discounts)],
+            ["Net Revenue", formatCurrency(report.netRevenue)],
+            ["Cash Received", formatCurrency(report.cashReceived)],
+            ["UPI Received", formatCurrency(report.upiReceived)],
+            ["Card Received", formatCurrency(report.cardReceived)],
+            ["Other Payments", formatCurrency(report.otherReceived)],
+            ["Outstanding", formatCurrency(report.outstanding)],
+        ];
+
+        summaryRows.forEach(([label, value]) => {
+            doc
+                .font("Helvetica")
+                .fontSize(10)
+                .text(label, {
+                    continued: true,
+                    width: 300,
+                })
+                .font("Helvetica-Bold")
+                .text(String(value), {
+                    align: "right",
+                });
+
+            doc.moveDown(0.2);
+        });
+
+        doc.moveDown();
+
+        // ----------------------------------------
+        // ORDER BREAKDOWN
+        // ----------------------------------------
+
+        doc
+            .fontSize(15)
+            .font("Helvetica-Bold")
+            .text("Invoice Breakdown");
+
+        doc.moveDown();
+
+        report.invoices.forEach((invoice, index) => {
+            // New page if required
+            if (doc.y > 700) {
+                doc.addPage();
+            }
+
+            doc
+                .fontSize(12)
+                .font("Helvetica-Bold")
+                .text(
+                    `${invoice.invoiceNumber} — ${invoice.customerName}`
+                );
+
+            doc
+                .fontSize(9)
+                .font("Helvetica")
+                .fillColor("#555555")
+                .text(
+                    `Payment: ${invoice.paymentMethods || "N/A"}`
+                );
+
+            doc.moveDown(0.3);
+
+            invoice.items.forEach((item) => {
+                doc
+                    .fillColor("#000000")
+                    .fontSize(9)
+                    .text(
+                        `${item.productName} × ${item.quantity}    ${formatCurrency(item.lineTotal)}`
+                    );
+            });
+
+            doc.moveDown(0.3);
+
+            doc
+                .font("Helvetica")
+                .fontSize(9)
+                .text(
+                    `Subtotal: ${formatCurrency(invoice.subtotal)}`
+                );
+
+            doc.text(
+                `GST: ${formatCurrency(invoice.gstTotal)}`
+            );
+
+            doc.text(
+                `Discount: ${formatCurrency(invoice.discountTotal)}`
+            );
+
+            doc
+                .font("Helvetica-Bold")
+                .text(
+                    `Total: ${formatCurrency(invoice.total)}`
+                );
+
+            doc.moveDown();
+
+            if (index < report.invoices.length - 1) {
+                doc
+                    .moveTo(40, doc.y)
+                    .lineTo(555, doc.y)
+                    .strokeColor("#dddddd")
+                    .stroke();
+
+                doc.moveDown();
+            }
+        });
+
+        if (report.invoices.length === 0) {
+            doc
+                .fontSize(11)
+                .font("Helvetica")
+                .fillColor("#666666")
+                .text("No orders were created today.");
+        }
+
+        // ----------------------------------------
+        // FOOTER
+        // ----------------------------------------
+
+        doc.moveDown(2);
+
+        doc
+            .fontSize(8)
+            .fillColor("#888888")
+            .text(
+                `Generated automatically by Billing Software · ${report.date}`,
+                {
+                    align: "center",
+                }
+            );
+
+        doc.end();
+    });
 }
 
 app.get("/", (req, res) => {
@@ -1782,6 +2858,203 @@ app.delete("/api/suppliers/:id", authenticateToken, (req, res) => {
     return res.json({ message: "Supplier deleted successfully" });
 });
 
+function getTodayDateString() {
+    return new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Kolkata",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).format(new Date());
+}
+
+function getTodaySalesSummary(userId) {
+    const today = getTodayDateString();
+
+    const summary = db.prepare(`
+        SELECT
+            COUNT(*) AS orders,
+            COALESCE(SUM(total), 0) AS revenue
+        FROM invoices
+        WHERE userId = ?
+          AND DATE(createdAt, 'localtime') = ?
+    `).get(userId, today);
+
+    const productsSold = db.prepare(`
+        SELECT
+            COALESCE(SUM(ii.quantity), 0) AS productsSold
+        FROM invoice_items ii
+        INNER JOIN invoices i ON i.id = ii.invoiceId
+        WHERE ii.userId = ?
+          AND DATE(i.createdAt, 'localtime') = ?
+    `).get(userId, today);
+
+    const customers = db.prepare(`
+        SELECT COUNT(DISTINCT
+            CASE
+                WHEN customerId IS NOT NULL THEN customerId
+                ELSE 'walkin-' || id
+            END
+        ) AS customers
+        FROM invoices
+        WHERE userId = ?
+          AND DATE(createdAt, 'localtime') = ?
+    `).get(userId, today);
+
+    const invoices = db.prepare(`
+        SELECT
+            i.id,
+            i.invoiceNumber,
+            i.customerName,
+            i.contactNumber,
+            i.subtotal,
+            i.gstTotal,
+            i.discountTotal,
+            i.total,
+            i.status,
+            i.createdAt
+        FROM invoices i
+        WHERE i.userId = ?
+          AND DATE(i.createdAt, 'localtime') = ?
+        ORDER BY i.createdAt ASC
+    `).all(userId, today);
+
+    const invoiceItems = db.prepare(`
+        SELECT
+            invoiceId,
+            productName,
+            sku,
+            quantity,
+            unitPrice,
+            gstPercent,
+            discountPercent,
+            lineTotal
+        FROM invoice_items
+        WHERE userId = ?
+          AND invoiceId IN (
+              SELECT id
+              FROM invoices
+              WHERE userId = ?
+                AND DATE(createdAt, 'localtime') = ?
+          )
+        ORDER BY invoiceId ASC
+    `).all(userId, userId, today);
+
+    const itemsMap = {};
+
+    invoiceItems.forEach((item) => {
+        if (!itemsMap[item.invoiceId]) {
+            itemsMap[item.invoiceId] = [];
+        }
+
+        itemsMap[item.invoiceId].push(item);
+    });
+
+    const orders = invoices.map((invoice) => ({
+        ...invoice,
+        items: itemsMap[invoice.id] || [],
+    }));
+
+    return {
+        date: today,
+        customers: Number(customers?.customers || 0),
+        orders: Number(summary?.orders || 0),
+        productsSold: Number(productsSold?.productsSold || 0),
+        revenue: Number(summary?.revenue || 0),
+        invoices: orders,
+    };
+}
+
+app.post(
+    "/api/reports/daily-summary/send",
+    authenticateToken,
+    async (req, res) => {
+        try {
+            const result =
+                await sendDailySummaryEmail(
+                    req.user.id
+                );
+
+            return res.json({
+                message:
+                    "Daily sales report sent successfully",
+                ...result,
+            });
+
+        } catch (error) {
+
+            console.error(
+                "[Daily Summary] Email failed:",
+                error
+            );
+
+            return res.status(500).json({
+                message:
+                    "Unable to send daily sales report",
+                error: error.message,
+            });
+        }
+    }
+);
+
+cron.schedule(
+    "0 21 * * *",
+    async () => {
+
+        console.log(
+            "[Daily Summary] Starting daily reports..."
+        );
+
+        try {
+
+            const users = db.prepare(`
+                SELECT
+                    id,
+                    email,
+                    companyName
+                FROM users
+                WHERE email IS NOT NULL
+                  AND email != ''
+            `).all();
+
+            for (const user of users) {
+
+                try {
+
+                    await sendDailySummaryEmail(
+                        user.id
+                    );
+
+                } catch (error) {
+
+                    console.error(
+                        `[Daily Summary] Failed for ${user.email}:`,
+                        error.message
+                    );
+
+                }
+
+            }
+
+            console.log(
+                "[Daily Summary] All reports completed."
+            );
+
+        } catch (error) {
+
+            console.error(
+                "[Daily Summary] Scheduler failed:",
+                error
+            );
+
+        }
+
+    },
+    {
+        timezone: "Asia/Kolkata",
+    }
+);
+
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    console.log("Daily sales summary scheduled for 9:00 PM IST");
 });
