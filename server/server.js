@@ -1667,6 +1667,135 @@ app.get("/api/dashboard", authenticateToken, (req, res) => {
     });
 });
 
+function getSalesAssistantData(userId) {
+    const sales = db.prepare(`
+        SELECT
+            COALESCE(SUM(CASE WHEN datetime(createdAt) >= datetime('now', '-30 days') THEN total ELSE 0 END), 0) AS revenue30Days,
+            COALESCE(SUM(CASE WHEN datetime(createdAt) >= datetime('now', '-60 days') AND datetime(createdAt) < datetime('now', '-30 days') THEN total ELSE 0 END), 0) AS previousRevenue30Days,
+            COALESCE(SUM(CASE WHEN datetime(createdAt) >= datetime('now', '-30 days') THEN 1 ELSE 0 END), 0) AS orders30Days
+        FROM invoices
+        WHERE userId = ?
+    `).get(userId);
+
+    const products = db.prepare(`
+        SELECT
+            p.id,
+            p.productName,
+            p.stock,
+            p.sellingPrice,
+            COALESCE(SUM(CASE WHEN datetime(i.createdAt) >= datetime('now', '-30 days') THEN ii.quantity ELSE 0 END), 0) AS units30Days,
+            COALESCE(SUM(CASE WHEN datetime(i.createdAt) >= datetime('now', '-60 days') AND datetime(i.createdAt) < datetime('now', '-30 days') THEN ii.quantity ELSE 0 END), 0) AS previousUnits30Days,
+            COALESCE(SUM(CASE WHEN datetime(i.createdAt) >= datetime('now', '-30 days') THEN ii.lineTotal ELSE 0 END), 0) AS revenue30Days
+        FROM products p
+        LEFT JOIN invoice_items ii ON ii.productId = p.id AND ii.userId = p.userId
+        LEFT JOIN invoices i ON i.id = ii.invoiceId AND i.userId = p.userId
+        WHERE p.userId = ?
+        GROUP BY p.id
+    `).all(userId).map((product) => ({
+        ...product,
+        stock: Number(product.stock || 0),
+        sellingPrice: Number(product.sellingPrice || 0),
+        units30Days: Number(product.units30Days || 0),
+        previousUnits30Days: Number(product.previousUnits30Days || 0),
+        revenue30Days: Number(product.revenue30Days || 0),
+    }));
+
+    const topCustomers = db.prepare(`
+        SELECT
+            COALESCE(NULLIF(i.customerName, ''), 'Walk-in Customer') AS customerName,
+            COUNT(*) AS orders,
+            COALESCE(SUM(i.total), 0) AS spent
+        FROM invoices i
+        WHERE i.userId = ? AND datetime(i.createdAt) >= datetime('now', '-30 days')
+        GROUP BY COALESCE(NULLIF(i.customerName, ''), 'Walk-in Customer')
+        ORDER BY spent DESC
+        LIMIT 5
+    `).all(userId).map((customer) => ({ ...customer, orders: Number(customer.orders || 0), spent: Number(customer.spent || 0) }));
+
+    const topProducts = [...products]
+        .filter((product) => product.units30Days > 0)
+        .sort((a, b) => b.units30Days - a.units30Days || b.revenue30Days - a.revenue30Days)
+        .slice(0, 5);
+    const lowDemandProducts = [...products]
+        .filter((product) => product.stock > 0)
+        .sort((a, b) => a.units30Days - b.units30Days || b.stock - a.stock)
+        .slice(0, 5);
+    const lowStockProducts = products.filter((product) => product.stock <= 5).sort((a, b) => a.stock - b.stock).slice(0, 5);
+    const revenue30Days = Number(sales.revenue30Days || 0);
+    const previousRevenue30Days = Number(sales.previousRevenue30Days || 0);
+    const revenueChangePercent = previousRevenue30Days > 0
+        ? ((revenue30Days - previousRevenue30Days) / previousRevenue30Days) * 100
+        : null;
+
+    return {
+        periodLabel: "last 30 days",
+        sales: { revenue30Days, previousRevenue30Days, orders30Days: Number(sales.orders30Days || 0), revenueChangePercent },
+        topProducts,
+        lowDemandProducts,
+        lowStockProducts,
+        topCustomers,
+        products,
+    };
+}
+
+function money(value) {
+    return `₹${Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+}
+
+function productList(products, metric) {
+    return products.length ? products.map((product) => `${product.productName} (${metric(product)})`).join(", ") : "No matching products yet";
+}
+
+function answerSalesQuestion(question, data) {
+    const normalizedQuestion = String(question || "").trim().toLowerCase();
+    const { sales, topProducts, lowDemandProducts, lowStockProducts, topCustomers, products } = data;
+    const salesSummary = `Sales in the ${data.periodLabel}: ${money(sales.revenue30Days)} from ${sales.orders30Days} order${sales.orders30Days === 1 ? "" : "s"}${sales.revenueChangePercent === null ? "." : `, ${sales.revenueChangePercent >= 0 ? "up" : "down"} ${Math.abs(sales.revenueChangePercent).toFixed(1)}% versus the prior 30 days.`}`;
+
+    const namedProduct = products.find((product) => normalizedQuestion.includes(product.productName.toLowerCase()));
+    if (namedProduct) {
+        return `${namedProduct.productName}: ${namedProduct.units30Days} unit${namedProduct.units30Days === 1 ? "" : "s"} sold in the last 30 days (${money(namedProduct.revenue30Days)} sales), ${namedProduct.stock} in stock. ${namedProduct.previousUnits30Days ? `That compares with ${namedProduct.previousUnits30Days} units in the previous 30 days.` : "There were no recorded sales in the previous 30 days."}`;
+    }
+    if (/low stock|stock|reorder|inventory/.test(normalizedQuestion)) {
+        return lowStockProducts.length
+            ? `Reorder soon: ${productList(lowStockProducts, (product) => `${product.stock} left`)}.`
+            : "No products are currently at or below the low-stock threshold of 5 units.";
+    }
+    if (/low demand|slow|not selling|least|worst/.test(normalizedQuestion)) {
+        return `Slow-moving products with stock on hand: ${productList(lowDemandProducts, (product) => `${product.units30Days} sold, ${product.stock} in stock`)}. Consider a promotion, bundle, or reduced reorder quantity for products with no sales.`;
+    }
+    if (/customer|buyer|who buys|top client/.test(normalizedQuestion)) {
+        return topCustomers.length
+            ? `Top customers in the last 30 days: ${topCustomers.map((customer) => `${customer.customerName} (${money(customer.spent)}, ${customer.orders} orders)`).join(", ")}.`
+            : "There are no customer purchases in the last 30 days.";
+    }
+    if (/demand|top|best|popular|selling product|product sell/.test(normalizedQuestion)) {
+        return topProducts.length
+            ? `Highest-demand products in the last 30 days: ${productList(topProducts, (product) => `${product.units30Days} units, ${money(product.revenue30Days)}`)}.`
+            : "No product sales were recorded in the last 30 days.";
+    }
+    if (/revenue|sale|sales|order|income|turnover/.test(normalizedQuestion)) return salesSummary;
+
+    return `${salesSummary} Top-demand products: ${productList(topProducts.slice(0, 3), (product) => `${product.units30Days} units`)}. You can ask about top products, low demand, stock to reorder, a product by name, or top customers.`;
+}
+
+app.get("/api/sales-assistant/insights", authenticateToken, (req, res) => {
+    const data = getSalesAssistantData(req.user.id);
+    return res.json({
+        message: "Sales insights generated successfully",
+        ...data,
+        products: undefined,
+    });
+});
+
+app.post("/api/sales-assistant/ask", authenticateToken, (req, res) => {
+    const question = String(req.body?.question || "").trim();
+    if (!question) return res.status(400).json({ message: "Please enter a sales question" });
+    if (question.length > 500) return res.status(400).json({ message: "Please keep your question under 500 characters" });
+
+    const data = getSalesAssistantData(req.user.id);
+    return res.json({ question, answer: answerSalesQuestion(question, data) });
+});
+
 app.post("/api/db/backup", authenticateToken, async (req, res) => {
     try {
         const backup = await performDatabaseBackup();

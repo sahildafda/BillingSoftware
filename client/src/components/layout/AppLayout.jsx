@@ -3,6 +3,7 @@ import { Box, Flex } from "@chakra-ui/react";
 import { useLocation } from "react-router-dom";
 
 import Sidebar from "./Sidebar";
+import SalesAssistant from "../sales/SalesAssistant";
 
 export default function AppLayout({ children }) {
     const [collapsed, setCollapsed] = useState(false);
@@ -17,6 +18,7 @@ export default function AppLayout({ children }) {
                     {children}
                 </Box>
             </Flex>
+            <SalesAssistant />
         </Box>
     );
 }
