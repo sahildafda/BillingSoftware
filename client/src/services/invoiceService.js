@@ -12,9 +12,11 @@ function authHeaders() {
 export const getInvoices = (params = {}) => API.get("/billing/invoices", { params, headers: authHeaders() });
 export const getInvoiceById = (id) => API.get(`/billing/invoices/${id}`, { headers: authHeaders() });
 export const getCustomerBalances = (params = {}) => API.get("/billing/customer-balances", { params, headers: authHeaders() });
+export const returnInvoiceItems = (id, payload) => API.post(`/billing/invoices/${id}/returns`, payload, { headers: authHeaders() });
 
 export default {
     getInvoices,
     getInvoiceById,
     getCustomerBalances,
+    returnInvoiceItems,
 };

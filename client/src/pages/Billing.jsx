@@ -271,14 +271,16 @@ export default function Billing() {
         return sum + discountValue;
     }, 0);
     const grandTotal = subtotal + gstTotal - discountTotal;
+    const creditAvailable = Number(selectedCustomer?.credit || 0);
+    const creditUsed = Math.min(creditAvailable, grandTotal);
     const paymentTotal = payments.reduce((sum, row) => sum + Number(row.amount || 0), 0);
-    const balanceDue = grandTotal - paymentTotal;
-    const canFinalize = cart.length > 0 && paymentTotal >= grandTotal - 0.01;
+    const balanceDue = Math.max(0, grandTotal - creditUsed - paymentTotal);
+    const canFinalize = cart.length > 0 && balanceDue <= 0.01;
     const showCustomerSuggestions = !selectedCustomer && customerQuery.trim() && filteredCustomers.length > 0;
 
     async function finalizeInvoice() {
         if (!canFinalize) {
-            setStatusMessage("Payment total must cover the invoice amount.");
+            setStatusMessage("Payment total must cover the amount remaining after customer credit.");
             return;
         }
 
@@ -376,6 +378,7 @@ export default function Billing() {
                                 <Box mt={3} bg="card" border="1px solid" borderColor="border" borderRadius="md" p={3}>
                                     <Text fontWeight={600}>{selectedCustomer.customerName}</Text>
                                     <Text fontSize="sm" color="muted">{selectedCustomer.contactNumber || selectedCustomer.email || "Walk-in customer"}</Text>
+                                    <Text fontSize="sm" color="green.300">Available credit: {formatMoney(selectedCustomer.credit)}</Text>
                                 </Box>
                             )}
                         </Box>
@@ -573,6 +576,7 @@ export default function Billing() {
                             <Flex justify="space-between"><Text color="muted">GST</Text><Text>{formatMoney(gstTotal)}</Text></Flex>
                             <Flex justify="space-between"><Text color="muted">Discount</Text><Text>- {formatMoney(discountTotal)}</Text></Flex>
                             <Flex justify="space-between" fontWeight={700}><Text>Total</Text><Text>{formatMoney(grandTotal)}</Text></Flex>
+                            {selectedCustomer && <Flex justify="space-between"><Text color="muted">Customer credit applied</Text><Text color="green.300">- {formatMoney(creditUsed)}</Text></Flex>}
                             <Flex justify="space-between"><Text color="muted">Paid</Text><Text>{formatMoney(paymentTotal)}</Text></Flex>
                             <Flex justify="space-between" fontWeight={700} color={balanceDue <= 0 ? "green.300" : "orange.300"}>
                                 <Text>Balance</Text>

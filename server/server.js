@@ -91,6 +91,13 @@ function ensureProductSupplierColumn() {
 
 ensureProductSupplierColumn();
 
+function ensureColumn(tableName, columnName, definition) {
+    const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
+    if (!columns.some((column) => column.name === columnName)) {
+        db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+    }
+}
+
 db.exec(`
     CREATE TABLE IF NOT EXISTS invoices (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -146,6 +153,32 @@ db.exec(`
 `);
 
 db.exec(`
+    CREATE TABLE IF NOT EXISTS invoice_returns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId INTEGER NOT NULL,
+        invoiceId INTEGER NOT NULL,
+        customerId INTEGER NOT NULL,
+        creditAmount REAL NOT NULL DEFAULT 0,
+        createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(userId) REFERENCES users(id),
+        FOREIGN KEY(invoiceId) REFERENCES invoices(id),
+        FOREIGN KEY(customerId) REFERENCES customers(id)
+    )
+`);
+
+db.exec(`
+    CREATE TABLE IF NOT EXISTS invoice_return_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        returnId INTEGER NOT NULL,
+        invoiceItemId INTEGER NOT NULL,
+        quantity INTEGER NOT NULL,
+        creditAmount REAL NOT NULL DEFAULT 0,
+        FOREIGN KEY(returnId) REFERENCES invoice_returns(id),
+        FOREIGN KEY(invoiceItemId) REFERENCES invoice_items(id)
+    )
+`);
+
+db.exec(`
     CREATE TABLE IF NOT EXISTS customers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         userId INTEGER NOT NULL,
@@ -158,6 +191,13 @@ db.exec(`
         FOREIGN KEY(userId) REFERENCES users(id)
     )
 `);
+
+ensureColumn("products", "internalProductName", "TEXT NOT NULL DEFAULT ''");
+ensureColumn("products", "internalReference", "TEXT NOT NULL DEFAULT ''");
+ensureColumn("products", "internalGstPercentage", "REAL");
+ensureColumn("invoice_items", "internalProductName", "TEXT NOT NULL DEFAULT ''");
+ensureColumn("invoice_items", "internalReference", "TEXT NOT NULL DEFAULT ''");
+ensureColumn("invoice_items", "internalGstPercentage", "REAL");
 
 db.exec(`
     CREATE TABLE IF NOT EXISTS suppliers (
@@ -404,6 +444,9 @@ function formatProduct(product) {
         gstPercentage: Number(product.gstPercentage || 0),
         productImages: normalizeProductImages(product.productImages),
         discount: Number(product.discount || 0),
+        internalProductName: product.internalProductName || "",
+        internalReference: product.internalReference || "",
+        internalGstPercentage: product.internalGstPercentage == null ? null : Number(product.internalGstPercentage),
         barcode: product.barcode,
         stockStatus: product.stockStatus || getStockStatus(product.stock),
         createdAt: product.createdAt,
@@ -1569,6 +1612,61 @@ app.get("/", (req, res) => {
     res.send("Backend Running");
 });
 
+app.get("/api/dashboard", authenticateToken, (req, res) => {
+    const today = getTodayDateString();
+    const period = ["month", "year", "total"].includes(String(req.query.period || "month").toLowerCase())
+        ? String(req.query.period || "month").toLowerCase()
+        : "month";
+    const periodClause = period === "month"
+        ? "strftime('%Y-%m', datetime(createdAt, '+5 hours', '+30 minutes')) = strftime('%Y-%m', 'now', '+5 hours', '+30 minutes')"
+        : period === "year"
+            ? "strftime('%Y', datetime(createdAt, '+5 hours', '+30 minutes')) = strftime('%Y', 'now', '+5 hours', '+30 minutes')"
+            : "1 = 1";
+    const periodLabel = period === "month" ? "This month" : period === "year" ? "This year" : "All time";
+    const todayClause = "DATE(createdAt, '+5 hours', '+30 minutes') = ?";
+    const totals = db.prepare(`
+        SELECT COUNT(*) AS orders, COALESCE(SUM(total), 0) AS revenue
+        FROM invoices WHERE userId = ? AND ${periodClause}
+    `).get(req.user.id);
+    const todayTotals = db.prepare(`
+        SELECT COUNT(*) AS orders, COALESCE(SUM(total), 0) AS revenue
+        FROM invoices WHERE userId = ? AND ${todayClause}
+    `).get(req.user.id, today);
+    const customerTotals = db.prepare(`
+        SELECT COUNT(*) AS customers,
+               COALESCE(SUM(CASE WHEN ${periodClause} THEN 1 ELSE 0 END), 0) AS newCustomers,
+               COALESCE(SUM(credit), 0) AS creditOutstanding
+        FROM customers WHERE userId = ?
+    `).get(req.user.id);
+    const stock = db.prepare(`
+        SELECT COUNT(*) AS products,
+               COALESCE(SUM(stock), 0) AS units,
+               COALESCE(SUM(CASE WHEN stock <= 5 THEN 1 ELSE 0 END), 0) AS lowStock,
+               COALESCE(SUM(CASE WHEN stock = 0 THEN 1 ELSE 0 END), 0) AS outOfStock
+        FROM products WHERE userId = ?
+    `).get(req.user.id);
+    const pendingInvoices = db.prepare("SELECT COUNT(*) AS count FROM invoices WHERE userId = ? AND status != 'paid'").get(req.user.id);
+    const recentInvoices = db.prepare(`
+        SELECT id, invoiceNumber, customerName, total, status, createdAt
+        FROM invoices WHERE userId = ? AND ${periodClause} ORDER BY createdAt DESC LIMIT 5
+    `).all(req.user.id);
+
+    return res.json({
+        message: "Dashboard fetched successfully",
+        period,
+        periodLabel,
+        summary: {
+            revenue: Number(totals.revenue || 0), orders: Number(totals.orders || 0),
+            customers: Number(customerTotals.customers || 0), products: Number(stock.products || 0),
+            stockUnits: Number(stock.units || 0), lowStock: Number(stock.lowStock || 0),
+            outOfStock: Number(stock.outOfStock || 0), pendingInvoices: Number(pendingInvoices.count || 0),
+            customerCredit: Number(customerTotals.creditOutstanding || 0), todayRevenue: Number(todayTotals.revenue || 0),
+            todayOrders: Number(todayTotals.orders || 0), newCustomers: Number(customerTotals.newCustomers || 0),
+        },
+        recentInvoices,
+    });
+});
+
 app.post("/api/db/backup", authenticateToken, async (req, res) => {
     try {
         const backup = await performDatabaseBackup();
@@ -2039,6 +2137,13 @@ app.get("/api/billing/invoices", authenticateToken, (req, res) => {
     const invoices = db.prepare(query).all(...params);
     const items = db.prepare("SELECT * FROM invoice_items WHERE userId = ?").all(req.user.id);
     const payments = db.prepare("SELECT * FROM invoice_payments WHERE userId = ?").all(req.user.id);
+    const returns = db.prepare("SELECT * FROM invoice_returns WHERE userId = ?").all(req.user.id);
+    const returnItems = db.prepare(`
+        SELECT iri.*, ir.invoiceId
+        FROM invoice_return_items iri
+        INNER JOIN invoice_returns ir ON ir.id = iri.returnId
+        WHERE ir.userId = ?
+    `).all(req.user.id);
 
     const itemMap = {};
     items.forEach((item) => {
@@ -2052,12 +2157,22 @@ app.get("/api/billing/invoices", authenticateToken, (req, res) => {
         paymentsMap[payment.invoiceId].push(payment);
     });
 
+    const returnsMap = {};
+    returns.forEach((invoiceReturn) => {
+        returnsMap[invoiceReturn.invoiceId] = returnsMap[invoiceReturn.invoiceId] || [];
+        returnsMap[invoiceReturn.invoiceId].push({
+            ...invoiceReturn,
+            items: returnItems.filter((item) => item.returnId === invoiceReturn.id),
+        });
+    });
+
     return res.json({
         message: "Invoices fetched successfully",
         invoices: invoices.map((invoice) => ({
             ...invoice,
             items: itemMap[invoice.id] || [],
             payments: paymentsMap[invoice.id] || [],
+            returns: returnsMap[invoice.id] || [],
         })),
     });
 });
@@ -2071,6 +2186,11 @@ app.get("/api/billing/invoices/:id", authenticateToken, (req, res) => {
 
     const items = db.prepare("SELECT * FROM invoice_items WHERE invoiceId = ? AND userId = ?").all(req.params.id, req.user.id);
     const payments = db.prepare("SELECT * FROM invoice_payments WHERE invoiceId = ? AND userId = ?").all(req.params.id, req.user.id);
+    const returns = db.prepare("SELECT * FROM invoice_returns WHERE invoiceId = ? AND userId = ?").all(req.params.id, req.user.id)
+        .map((invoiceReturn) => ({
+            ...invoiceReturn,
+            items: db.prepare("SELECT * FROM invoice_return_items WHERE returnId = ?").all(invoiceReturn.id),
+        }));
 
     return res.json({
         message: "Invoice fetched successfully",
@@ -2078,8 +2198,78 @@ app.get("/api/billing/invoices/:id", authenticateToken, (req, res) => {
             ...invoice,
             items,
             payments,
+            returns,
         },
     });
+});
+
+app.post("/api/billing/invoices/:id/returns", authenticateToken, (req, res) => {
+    const { items } = req.body;
+    const invoice = db.prepare("SELECT * FROM invoices WHERE id = ? AND userId = ?").get(req.params.id, req.user.id);
+
+    if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+    if (!invoice.customerId) return res.status(400).json({ message: "Returns can only be credited to a saved customer" });
+    if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ message: "Select at least one item to return" });
+
+    const invoiceItems = db.prepare("SELECT * FROM invoice_items WHERE invoiceId = ? AND userId = ?").all(invoice.id, req.user.id);
+    const returnedRows = db.prepare(`
+        SELECT iri.invoiceItemId, COALESCE(SUM(iri.quantity), 0) AS quantity
+        FROM invoice_return_items iri
+        INNER JOIN invoice_returns ir ON ir.id = iri.returnId
+        WHERE ir.invoiceId = ? AND ir.userId = ?
+        GROUP BY iri.invoiceItemId
+    `).all(invoice.id, req.user.id);
+    const alreadyReturned = Object.fromEntries(returnedRows.map((row) => [row.invoiceItemId, Number(row.quantity)]));
+    const requestedQuantities = new Map();
+    for (const requested of items) {
+        const invoiceItemId = Number(requested.invoiceItemId);
+        requestedQuantities.set(invoiceItemId, (requestedQuantities.get(invoiceItemId) || 0) + Number(requested.quantity));
+    }
+    const selectedItems = [];
+
+    for (const [invoiceItemId, quantity] of requestedQuantities) {
+        const invoiceItem = invoiceItems.find((item) => item.id === invoiceItemId);
+        if (!invoiceItem || !Number.isInteger(quantity) || quantity <= 0) {
+            return res.status(400).json({ message: "Each returned item and quantity must be valid" });
+        }
+        const remaining = Number(invoiceItem.quantity) - Number(alreadyReturned[invoiceItem.id] || 0);
+        if (quantity > remaining) {
+            return res.status(400).json({ message: `${invoiceItem.productName} can only be returned up to ${remaining} more item(s)` });
+        }
+        selectedItems.push({ invoiceItem, quantity, creditAmount: (Number(invoiceItem.lineTotal) / Number(invoiceItem.quantity)) * quantity });
+    }
+
+    const creditAmount = selectedItems.reduce((sum, item) => sum + item.creditAmount, 0);
+    const transaction = db.transaction(() => {
+        const result = db.prepare(`INSERT INTO invoice_returns (userId, invoiceId, customerId, creditAmount) VALUES (?, ?, ?, ?)`)
+            .run(req.user.id, invoice.id, invoice.customerId, creditAmount);
+        const returnId = Number(result.lastInsertRowid);
+        const insertReturnItem = db.prepare(`INSERT INTO invoice_return_items (returnId, invoiceItemId, quantity, creditAmount) VALUES (?, ?, ?, ?)`);
+
+        selectedItems.forEach(({ invoiceItem, quantity, creditAmount: itemCredit }) => {
+            insertReturnItem.run(returnId, invoiceItem.id, quantity, itemCredit);
+            if (invoiceItem.productId) {
+                db.prepare("UPDATE products SET stock = stock + ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND userId = ?")
+                    .run(quantity, invoiceItem.productId, req.user.id);
+            }
+        });
+        db.prepare("UPDATE customers SET credit = credit + ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND userId = ?")
+            .run(creditAmount, invoice.customerId, req.user.id);
+        return returnId;
+    });
+
+    try {
+        const returnId = transaction();
+        const customer = db.prepare("SELECT * FROM customers WHERE id = ? AND userId = ?").get(invoice.customerId, req.user.id);
+        return res.status(201).json({
+            message: `Return processed. ${formatCurrency(creditAmount)} added to customer credit.`,
+            return: db.prepare("SELECT * FROM invoice_returns WHERE id = ?").get(returnId),
+            customer: formatCustomer(customer),
+        });
+    } catch (error) {
+        console.error("Return processing failed:", error);
+        return res.status(400).json({ message: error.message || "Unable to process return" });
+    }
 });
 
 app.post("/api/billing/invoices", authenticateToken, async (req, res) => {
@@ -2089,8 +2279,8 @@ app.post("/api/billing/invoices", authenticateToken, async (req, res) => {
         return res.status(400).json({ message: "At least one item is required for billing" });
     }
 
-    if (!Array.isArray(payments) || payments.length === 0) {
-        return res.status(400).json({ message: "At least one payment method is required" });
+    if (!Array.isArray(payments)) {
+        return res.status(400).json({ message: "payments must be an array" });
     }
 
     const normalizedCustomerName = String((customer && customer.customerName) || "Walk-in Customer").trim() || "Walk-in Customer";
@@ -2102,8 +2292,9 @@ app.post("/api/billing/invoices", authenticateToken, async (req, res) => {
         return res.status(400).json({ message: "customerId must be valid when provided" });
     }
 
+    let customerRecord = null;
     if (resolvedCustomerId !== null) {
-        const customerRecord = db.prepare("SELECT id FROM customers WHERE id = ? AND userId = ?").get(resolvedCustomerId, req.user.id);
+        customerRecord = db.prepare("SELECT id, credit FROM customers WHERE id = ? AND userId = ?").get(resolvedCustomerId, req.user.id);
         if (!customerRecord) {
             return res.status(404).json({ message: "Customer not found" });
         }
@@ -2154,17 +2345,21 @@ app.post("/api/billing/invoices", authenticateToken, async (req, res) => {
             gstPercent,
             discountPercent,
             lineTotal,
+            internalProductName: String(product?.internalProductName || "").trim(),
+            internalReference: String(product?.internalReference || "").trim(),
+            internalGstPercentage: product?.internalGstPercentage == null ? null : Number(product.internalGstPercentage),
         });
     }
 
     const total = subtotal + gstTotal - discountTotal;
     const paymentTotal = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    const creditUsed = Math.min(Number(customerRecord?.credit || 0), total);
 
-    if (paymentTotal < total - 0.01) {
+    if (paymentTotal + creditUsed < total - 0.01) {
         return res.status(400).json({ message: "Payment total must cover the invoice amount" });
     }
 
-    const status = paymentTotal >= total ? "paid" : "partial";
+    const status = paymentTotal + creditUsed >= total ? "paid" : "partial";
     const invoiceNumber = generateInvoiceNumber();
 
     const transaction = db.transaction(() => {
@@ -2209,8 +2404,11 @@ app.post("/api/billing/invoices", authenticateToken, async (req, res) => {
                 unitPrice,
                 gstPercent,
                 discountPercent,
-                lineTotal
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                lineTotal,
+                internalProductName,
+                internalReference,
+                internalGstPercentage
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         invoiceItems.forEach((item) => {
@@ -2224,7 +2422,10 @@ app.post("/api/billing/invoices", authenticateToken, async (req, res) => {
                 item.unitPrice,
                 item.gstPercent,
                 item.discountPercent,
-                item.lineTotal
+                item.lineTotal,
+                item.internalProductName,
+                item.internalReference,
+                item.internalGstPercentage
             );
 
             if (item.productId) {
@@ -2258,6 +2459,15 @@ app.post("/api/billing/invoices", authenticateToken, async (req, res) => {
             );
         });
 
+        if (creditUsed > 0) {
+            db.prepare(`
+                UPDATE customers
+                SET credit = credit - ?, updatedAt = CURRENT_TIMESTAMP
+                WHERE id = ? AND userId = ? AND credit >= ?
+            `).run(creditUsed, resolvedCustomerId, req.user.id, creditUsed);
+            insertPayment.run(req.user.id, invoiceId, "credit", creditUsed);
+        }
+
         return invoiceId;
     });
 
@@ -2286,7 +2496,7 @@ app.post("/api/billing/invoices", authenticateToken, async (req, res) => {
 });
 
 app.post("/api/products", authenticateToken, (req, res) => {
-    const { productName, productPrice, sellingPrice, stock, brand, supplierId, gstPercentage, productImages, discount, barcode } = req.body;
+    const { productName, productPrice, sellingPrice, stock, brand, supplierId, gstPercentage, productImages, discount, barcode, internalProductName, internalReference, internalGstPercentage } = req.body;
 
     if (!productName || productPrice === undefined || sellingPrice === undefined || stock === undefined || !supplierId || gstPercentage === undefined) {
         return res.status(400).json({ message: "Please provide productName, productPrice, sellingPrice, stock, supplierId, and gstPercentage" });
@@ -2318,9 +2528,12 @@ app.post("/api/products", authenticateToken, (req, res) => {
             gstPercentage,
             productImages,
             discount,
+            internalProductName,
+            internalReference,
+            internalGstPercentage,
             barcode,
             stockStatus
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         req.user.id,
         String(productName).trim(),
@@ -2332,6 +2545,9 @@ app.post("/api/products", authenticateToken, (req, res) => {
         parsedGstPercentage,
         imagesJson,
         parsedDiscount,
+        String(internalProductName || "").trim(),
+        String(internalReference || "").trim(),
+        internalGstPercentage === "" || internalGstPercentage == null ? null : parseNumericValue(internalGstPercentage),
         generatedBarcode,
         stockStatus
     );
@@ -2397,6 +2613,21 @@ app.put("/api/products/:id", authenticateToken, (req, res) => {
     if (req.body.discount !== undefined) {
         updates.push("discount = ?");
         values.push(parseNumericValue(req.body.discount, 0));
+    }
+
+    if (req.body.internalProductName !== undefined) {
+        updates.push("internalProductName = ?");
+        values.push(String(req.body.internalProductName || "").trim());
+    }
+
+    if (req.body.internalReference !== undefined) {
+        updates.push("internalReference = ?");
+        values.push(String(req.body.internalReference || "").trim());
+    }
+
+    if (req.body.internalGstPercentage !== undefined) {
+        updates.push("internalGstPercentage = ?");
+        values.push(req.body.internalGstPercentage === "" || req.body.internalGstPercentage == null ? null : parseNumericValue(req.body.internalGstPercentage));
     }
 
     if (req.body.barcode !== undefined) {

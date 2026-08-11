@@ -57,12 +57,16 @@ import AppLayout from "../components/layout/AppLayout";
 
 function ProductForm({ initial, onClose, onSaved, suppliers = [] }) {
     const [form, setForm] = useState(
-        initial || { productName: "", supplierId: "", productImages: [], productPrice: 0, sellingPrice: 0, stock: 0, gstPercentage: 0, discount: 0 }
+        initial || { productName: "", supplierId: "", productImages: [], productPrice: 0, sellingPrice: 0, stock: 0, gstPercentage: 0, discount: 0, internalProductName: "", internalReference: "", internalGstPercentage: "" }
     );
+    const [showInternalDetails, setShowInternalDetails] = useState(Boolean(initial?.internalProductName || initial?.internalReference || initial?.internalGstPercentage != null));
     const [errors, setErrors] = useState({});
     const [saving, setSaving] = useState(false);
 
-    useEffect(() => setForm(initial || { productName: "", supplierId: "", productImages: [], productPrice: 0, sellingPrice: 0, stock: 0, gstPercentage: 0, discount: 0 }), [initial]);
+    useEffect(() => {
+        setForm(initial || { productName: "", supplierId: "", productImages: [], productPrice: 0, sellingPrice: 0, stock: 0, gstPercentage: 0, discount: 0, internalProductName: "", internalReference: "", internalGstPercentage: "" });
+        setShowInternalDetails(Boolean(initial?.internalProductName || initial?.internalReference || initial?.internalGstPercentage != null));
+    }, [initial]);
 
     async function handleImageUpload(event) {
         const files = Array.from(event.target.files || []);
@@ -235,6 +239,18 @@ function ProductForm({ initial, onClose, onSaved, suppliers = [] }) {
                     )}
                 </FormControl>
             </SimpleGrid>
+
+            <Box border="1px solid" borderColor="border" borderRadius="md" p={4} bg="card">
+                <HStack justify="space-between" mb={showInternalDetails ? 4 : 0}>
+                    <Box><Text fontWeight={600}>Internal report details</Text><Text fontSize="sm" color="muted">Optional references included alongside the billed product in GST exports.</Text></Box>
+                    <Button size="sm" variant="outline" colorScheme="orange" onClick={() => setShowInternalDetails((value) => !value)}>{showInternalDetails ? "Hide" : "Add details"}</Button>
+                </HStack>
+                {showInternalDetails && <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
+                    <FormControl><FormLabel>Internal product name</FormLabel><Input value={form.internalProductName || ""} onChange={(e) => setForm({ ...form, internalProductName: e.target.value })} placeholder="Optional reporting name" /></FormControl>
+                    <FormControl><FormLabel>Internal reference</FormLabel><Input value={form.internalReference || ""} onChange={(e) => setForm({ ...form, internalReference: e.target.value })} placeholder="Optional SKU, note, or reference" /></FormControl>
+                    <FormControl><FormLabel>Internal GST %</FormLabel><NumberInput min={0} value={form.internalGstPercentage ?? ""} onChange={(value) => setForm({ ...form, internalGstPercentage: value })}><NumberInputField placeholder="Optional GST %" /></NumberInput></FormControl>
+                </SimpleGrid>}
+            </Box>
 
             <HStack justify="end" spacing={3} mt={2}>
                 <Button variant="outline" onClick={onClose}>Cancel</Button>

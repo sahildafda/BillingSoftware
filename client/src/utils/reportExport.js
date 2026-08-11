@@ -34,6 +34,9 @@ export function getReportRecords(invoices = [], gstFilter = "all", recordLimit =
                 email: invoice.email || "",
                 productName: "Invoice Total",
                 sku: "",
+                internalProductName: "",
+                internalReference: "",
+                internalGstPercentage: "",
                 quantity: 1,
                 unitPrice: Number(invoice.total || 0),
                 gstPercentage: Number(invoice.gstTotal || 0) > 0 ? 18 : 0,
@@ -71,6 +74,9 @@ export function getReportRecords(invoices = [], gstFilter = "all", recordLimit =
                     email: invoice.email || "",
                     productName: item.productName || "Product",
                     sku: item.sku || item.barcode || "",
+                    internalProductName: item.internalProductName || "",
+                    internalReference: item.internalReference || "",
+                    internalGstPercentage: item.internalGstPercentage == null ? "" : Number(item.internalGstPercentage),
                     quantity,
                     unitPrice,
                     gstPercentage,
@@ -120,9 +126,9 @@ export function downloadExcelFile(rows, fileName = "invoice-report.xlsx") {
         "Email",
         "Product",
         "SKU",
+        "GST %",
         "Qty",
         "Unit Price",
-        "GST %",
         "Taxable Value",
         "GST Amount",
         "Total Amount",
@@ -133,20 +139,26 @@ export function downloadExcelFile(rows, fileName = "invoice-report.xlsx") {
     const csvRows = [header.join(",")];
 
     rows.forEach((row) => {
+
+        let gstPercentage = row.internalGstPercentage || row.gstPercentage || 0;
+        let gstAmount = row.taxableValue * (gstPercentage / 100);
+        let totalAmount = row.taxableValue + gstAmount;
+        let productName = row.internalProductName || row.productName;
+
         const values = [
             row.orderNumber || "",
             row.orderDate ? new Date(row.orderDate).toLocaleDateString("en-IN") : "",
             row.customerName || "Walk-in Customer",
             row.contactNumber || "",
             row.email || "",
-            row.productName || "",
+            productName || "",
             row.sku || "",
+            gstPercentage,
             Number(row.quantity || 0),
             Number(row.unitPrice || 0),
-            Number(row.gstPercentage || 0),
             Number(row.taxableValue || 0),
-            Number(row.gstAmount || 0),
-            Number(row.totalAmount || 0),
+            Number(gstAmount || 0),
+            Number(totalAmount || 0),
             row.gstType || "",
             row.status || "",
         ];
@@ -178,6 +190,9 @@ export function printProfessionalReport(rows, reportTitle = "GST Report") {
           <td>${row.orderNumber || ""}</td>
           <td>${row.customerName || "Walk-in Customer"}</td>
           <td>${row.productName || ""}</td>
+          <td>${row.internalProductName || ""}</td>
+          <td>${row.internalReference || ""}</td>
+          <td>${row.internalGstPercentage === "" ? "" : `${row.internalGstPercentage ?? ""}%`}</td>
           <td>${row.gstPercentage ?? 0}%</td>
           <td>${formatCurrency(row.unitPrice)}</td>
           <td>${formatCurrency(row.taxableValue)}</td>
@@ -227,6 +242,9 @@ export function printProfessionalReport(rows, reportTitle = "GST Report") {
               <th>Order</th>
               <th>Customer</th>
               <th>Product</th>
+              <th>Internal Product</th>
+              <th>Internal Reference</th>
+              <th>Internal GST %</th>
               <th>GST %</th>
               <th>Price</th>
               <th>Taxable Value</th>

@@ -11,6 +11,7 @@ import {
     ModalBody,
     ModalCloseButton,
     ModalContent,
+    ModalFooter,
     ModalHeader,
     ModalOverlay,
     Select,
@@ -24,7 +25,7 @@ import {
     Tr,
     VStack,
 } from "@chakra-ui/react";
-import { LuReceipt, LuPrinter, LuArrowUpRight, LuFileDown, LuFileSpreadsheet } from "react-icons/lu";
+import { LuPrinter, LuArrowUpRight, LuFileDown, LuFileSpreadsheet, LuUndo2 } from "react-icons/lu";
 
 import AppLayout from "../components/layout/AppLayout";
 import * as invoiceService from "../services/invoiceService";
@@ -135,6 +136,65 @@ function InvoiceReceiptModal({ invoice, isOpen, onClose }) {
     );
 }
 
+function ReturnInvoiceModal({ invoice, isOpen, onClose, onReturned }) {
+    const [quantities, setQuantities] = useState({});
+    const [error, setError] = useState("");
+    const [saving, setSaving] = useState(false);
+
+    if (!invoice) return null;
+    const returnedQuantities = (invoice.returns || []).flatMap((entry) => entry.items || []).reduce((result, item) => {
+        result[item.invoiceItemId] = (result[item.invoiceItemId] || 0) + Number(item.quantity || 0);
+        return result;
+    }, {});
+
+    async function submitReturn() {
+        const items = Object.entries(quantities)
+            .filter(([, quantity]) => Number(quantity) > 0)
+            .map(([invoiceItemId, quantity]) => ({ invoiceItemId: Number(invoiceItemId), quantity: Number(quantity) }));
+        if (items.length === 0) {
+            setError("Enter a quantity for at least one item.");
+            return;
+        }
+        try {
+            setSaving(true);
+            const response = await invoiceService.returnInvoiceItems(invoice.id, { items });
+            onReturned(response?.data?.message || "Return processed successfully.");
+            onClose();
+        } catch (err) {
+            setError(err?.response?.data?.message || "Unable to process return.");
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} isCentered>
+            <ModalOverlay />
+            <ModalContent bg="surface" color="white">
+                <ModalHeader>Return items to customer credit</ModalHeader>
+                <ModalCloseButton />
+                <ModalBody>
+                    <Text color="muted" fontSize="sm" mb={4}>The returned amount is added to {invoice.customerName}&apos;s credit and the stock is restored.</Text>
+                    <VStack align="stretch" spacing={3}>
+                        {(invoice.items || []).map((item) => {
+                            const remaining = Number(item.quantity) - Number(returnedQuantities[item.id] || 0);
+                            return (
+                                <Flex key={item.id} justify="space-between" align="center" gap={3}>
+                                    <Box><Text fontWeight={600}>{item.productName}</Text><Text fontSize="sm" color="muted">Available to return: {remaining}</Text></Box>
+                                    <Input type="number" min={0} max={remaining} w="90px" value={quantities[item.id] || ""} isDisabled={remaining <= 0}
+                                        onChange={(e) => setQuantities({ ...quantities, [item.id]: Math.min(remaining, Math.max(0, Number(e.target.value || 0))) })} />
+                                </Flex>
+                            );
+                        })}
+                    </VStack>
+                    {error && <Text color="red.300" fontSize="sm" mt={3}>{error}</Text>}
+                </ModalBody>
+                <ModalFooter><Button variant="ghost" onClick={onClose}>Cancel</Button><Button colorScheme="orange" ml={3} onClick={submitReturn} isLoading={saving}>Process return</Button></ModalFooter>
+            </ModalContent>
+        </Modal>
+    );
+}
+
 export default function InvoiceHistory() {
     const [invoices, setInvoices] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -142,6 +202,8 @@ export default function InvoiceHistory() {
     const [gstFilter, setGstFilter] = useState("all");
     const [recordLimit, setRecordLimit] = useState("");
     const [selectedInvoice, setSelectedInvoice] = useState(null);
+    const [returnInvoice, setReturnInvoice] = useState(null);
+    const [statusMessage, setStatusMessage] = useState("");
 
     const effectiveRecordLimit = recordLimit === "" ? "all" : String(Math.max(1, Number(recordLimit) || 1));
     const reportRows = useMemo(() => getReportRecords(invoices, gstFilter, effectiveRecordLimit), [invoices, gstFilter, effectiveRecordLimit]);
@@ -291,6 +353,8 @@ export default function InvoiceHistory() {
                     </HStack>
                 </HStack>
 
+                {statusMessage && <Box bg="rgba(34,197,94,0.12)" border="1px solid" borderColor="green.500" borderRadius="md" p={3} mb={4}><Text color="green.200">{statusMessage}</Text></Box>}
+
                 <Box bg="card" borderRadius="lg" border="1px solid" borderColor="border" p={4} mb={4}>
                     <Text fontSize="sm" fontWeight={700} mb={2}>Export summary</Text>
                     <HStack spacing={4} wrap="wrap">
@@ -321,8 +385,6 @@ export default function InvoiceHistory() {
                         </Thead>
                         <Tbody>
                             {invoices.map((invoice) => {
-                                const totalPaid = (invoice.payments || []).reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-                                const balance = Number(invoice.total || 0) - totalPaid;
                                 return (
                                     <Tr key={invoice.id}>
                                         <Td>
@@ -353,6 +415,7 @@ export default function InvoiceHistory() {
                                             >
                                                 View
                                             </Button>
+                                            {invoice.customerId && <Button size="sm" ml={2} leftIcon={<LuUndo2 />} colorScheme="orange" variant="outline" onClick={() => setReturnInvoice(invoice)}>Return</Button>}
                                         </Td>
                                     </Tr>
                                 );
@@ -393,6 +456,7 @@ export default function InvoiceHistory() {
             </Box>
 
             <InvoiceReceiptModal invoice={selectedInvoice} isOpen={Boolean(selectedInvoice)} onClose={() => setSelectedInvoice(null)} />
+            <ReturnInvoiceModal key={returnInvoice?.id || "none"} invoice={returnInvoice} isOpen={Boolean(returnInvoice)} onClose={() => setReturnInvoice(null)} onReturned={(message) => { setStatusMessage(message); loadInvoices(); }} />
         </AppLayout>
     );
 }
