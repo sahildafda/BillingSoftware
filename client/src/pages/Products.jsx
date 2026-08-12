@@ -240,15 +240,15 @@ function ProductForm({ initial, onClose, onSaved, suppliers = [] }) {
                 </FormControl>
             </SimpleGrid>
 
-            <Box border="1px solid" borderColor="border" borderRadius="md" p={4} bg="card">
+            <Box border="1px solid" borderColor="border" borderRadius="md" p={4} bg="card" color="text">
                 <HStack justify="space-between" mb={showInternalDetails ? 4 : 0}>
                     <Box><Text fontWeight={600}>Internal report details</Text><Text fontSize="sm" color="muted">Optional references included alongside the billed product in GST exports.</Text></Box>
-                    <Button size="sm" variant="outline" colorScheme="orange" onClick={() => setShowInternalDetails((value) => !value)}>{showInternalDetails ? "Hide" : "Add details"}</Button>
+                    <Button size="sm" bg="primary" color="white" _hover={{ bg: "primaryHover" }} onClick={() => setShowInternalDetails((value) => !value)}>{showInternalDetails ? "Hide" : "Add details"}</Button>
                 </HStack>
-                {showInternalDetails && <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
-                    <FormControl><FormLabel>Internal product name</FormLabel><Input value={form.internalProductName || ""} onChange={(e) => setForm({ ...form, internalProductName: e.target.value })} placeholder="Optional reporting name" /></FormControl>
-                    <FormControl><FormLabel>Internal reference</FormLabel><Input value={form.internalReference || ""} onChange={(e) => setForm({ ...form, internalReference: e.target.value })} placeholder="Optional SKU, note, or reference" /></FormControl>
-                    <FormControl><FormLabel>Internal GST %</FormLabel><NumberInput min={0} value={form.internalGstPercentage ?? ""} onChange={(value) => setForm({ ...form, internalGstPercentage: value })}><NumberInputField placeholder="Optional GST %" /></NumberInput></FormControl>
+                {showInternalDetails && <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+                    <FormControl gridColumn={{ base: "auto", md: "1 / -1" }}><FormLabel>Internal product name</FormLabel><Input value={form.internalProductName || ""} onChange={(e) => setForm({ ...form, internalProductName: e.target.value })} placeholder="Optional reporting name" color="text" _placeholder={{ color: "muted" }} /></FormControl>
+                    <FormControl><FormLabel>Internal reference</FormLabel><Input value={form.internalReference || ""} onChange={(e) => setForm({ ...form, internalReference: e.target.value })} placeholder="Optional SKU, note, or reference" color="text" _placeholder={{ color: "muted" }} /></FormControl>
+                    <FormControl><FormLabel>Internal GST %</FormLabel><NumberInput min={0} value={form.internalGstPercentage ?? ""} onChange={(value) => setForm({ ...form, internalGstPercentage: value })}><NumberInputField placeholder="Optional GST %" color="text" _placeholder={{ color: "muted" }} /></NumberInput></FormControl>
                 </SimpleGrid>}
             </Box>
 

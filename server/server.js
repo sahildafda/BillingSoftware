@@ -2251,7 +2251,15 @@ app.get("/api/billing/customer-balances", authenticateToken, (req, res) => {
 });
 
 app.get("/api/billing/invoices", authenticateToken, (req, res) => {
-    const { status } = req.query;
+    const { status, startDate, endDate } = req.query;
+
+    const isDateOnly = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
+    if ((startDate && !isDateOnly(startDate)) || (endDate && !isDateOnly(endDate))) {
+        return res.status(400).json({ message: "Dates must use the YYYY-MM-DD format." });
+    }
+    if (startDate && endDate && String(startDate) > String(endDate)) {
+        return res.status(400).json({ message: "The start date cannot be after the end date." });
+    }
 
     let query = "SELECT * FROM invoices WHERE userId = ?";
     const params = [req.user.id];
@@ -2259,6 +2267,15 @@ app.get("/api/billing/invoices", authenticateToken, (req, res) => {
     if (status) {
         query += " AND status = ?";
         params.push(String(status).trim());
+    }
+
+    if (startDate) {
+        query += " AND DATE(createdAt, '+5 hours', '+30 minutes') >= ?";
+        params.push(String(startDate));
+    }
+    if (endDate) {
+        query += " AND DATE(createdAt, '+5 hours', '+30 minutes') <= ?";
+        params.push(String(endDate));
     }
 
     query += " ORDER BY createdAt DESC";

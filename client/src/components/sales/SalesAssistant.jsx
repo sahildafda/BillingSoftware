@@ -87,7 +87,7 @@ export default function SalesAssistant() {
                             </Box>}
                             {messages.map((message, index) => <Box key={`${message.role}-${index}`} alignSelf={message.role === "user" ? "flex-end" : "flex-start"} bg={message.role === "user" ? "primary" : "card"} rounded="xl" px={3} py={2} maxW="92%"><Text fontSize="sm">{message.text}</Text></Box>)}
                             {asking && <HStack color="muted"><Spinner size="xs" /><Text fontSize="sm">Checking your data…</Text></HStack>}
-                            {!messages.length && <VStack align="stretch" spacing={2}><Text fontSize="sm" color="muted">Try asking:</Text>{prompts.map((prompt) => <Button key={prompt} size="sm" justifyContent="flex-start" variant="outline" borderColor="border" whiteSpace="normal" h="auto" py={2} onClick={() => setQuestion(prompt)}>{prompt}</Button>)}</VStack>}
+                            {!messages.length && <VStack align="stretch" spacing={2}><Text fontSize="sm" color="muted">Try asking:</Text>{prompts.map((prompt) => <Button key={prompt} size="sm" justifyContent="flex-start" variant="outline" color="text" borderColor="border" _hover={{ bg: "whiteAlpha.100", borderColor: "orange.400" }} whiteSpace="normal" h="auto" py={2} onClick={() => setQuestion(prompt)}>{prompt}</Button>)}</VStack>}
                         </Stack>}
                         {error && <Text mt={3} color="red.300" fontSize="sm">{error}</Text>}
                     </Box>

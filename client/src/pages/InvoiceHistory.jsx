@@ -136,6 +136,28 @@ function InvoiceReceiptModal({ invoice, isOpen, onClose }) {
     );
 }
 
+function toDateInputValue(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+}
+
+function getDateRange(period) {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = today.getMonth();
+    const financialYearStart = year - (month < 3 ? 1 : 0);
+
+    if (period === "current-month") return { startDate: toDateInputValue(new Date(year, month, 1)), endDate: toDateInputValue(today) };
+    if (period === "last-month") return { startDate: toDateInputValue(new Date(year, month - 1, 1)), endDate: toDateInputValue(new Date(year, month, 0)) };
+    if (period === "current-year") return { startDate: `${year}-01-01`, endDate: toDateInputValue(today) };
+    if (period === "last-year") return { startDate: `${year - 1}-01-01`, endDate: `${year - 1}-12-31` };
+    if (period === "current-financial-year") return { startDate: `${financialYearStart}-04-01`, endDate: toDateInputValue(today) };
+    if (period === "last-financial-year") return { startDate: `${financialYearStart - 1}-04-01`, endDate: `${financialYearStart}-03-31` };
+    return { startDate: "", endDate: "" };
+}
+
 function ReturnInvoiceModal({ invoice, isOpen, onClose, onReturned }) {
     const [quantities, setQuantities] = useState({});
     const [error, setError] = useState("");
@@ -200,19 +222,29 @@ export default function InvoiceHistory() {
     const [loading, setLoading] = useState(false);
     const [statusFilter, setStatusFilter] = useState("all");
     const [gstFilter, setGstFilter] = useState("all");
+    const [dateRange, setDateRange] = useState("current-month");
+    const [customStartDate, setCustomStartDate] = useState("");
+    const [customEndDate, setCustomEndDate] = useState("");
     const [recordLimit, setRecordLimit] = useState("");
     const [selectedInvoice, setSelectedInvoice] = useState(null);
     const [returnInvoice, setReturnInvoice] = useState(null);
     const [statusMessage, setStatusMessage] = useState("");
 
     const effectiveRecordLimit = recordLimit === "" ? "all" : String(Math.max(1, Number(recordLimit) || 1));
+    const selectedDates = useMemo(() => dateRange === "custom"
+        ? { startDate: customStartDate, endDate: customEndDate }
+        : getDateRange(dateRange), [dateRange, customStartDate, customEndDate]);
     const reportRows = useMemo(() => getReportRecords(invoices, gstFilter, effectiveRecordLimit), [invoices, gstFilter, effectiveRecordLimit]);
     const reportSummary = useMemo(() => getReportSummary(reportRows), [reportRows]);
 
     async function loadInvoices() {
         try {
             setLoading(true);
-            const res = await invoiceService.getInvoices({ status: statusFilter === "all" ? undefined : statusFilter });
+            const res = await invoiceService.getInvoices({
+                status: statusFilter === "all" ? undefined : statusFilter,
+                startDate: selectedDates.startDate || undefined,
+                endDate: selectedDates.endDate || undefined,
+            });
             setInvoices(res?.data?.invoices || []);
         } catch (err) {
             console.error(err);
@@ -224,7 +256,7 @@ export default function InvoiceHistory() {
 
     useEffect(() => {
         loadInvoices();
-    }, [statusFilter]);
+    }, [statusFilter, selectedDates]);
 
     const customerBalanceSummary = useMemo(() => {
         const summary = {};
@@ -271,6 +303,7 @@ export default function InvoiceHistory() {
                                 bg="gray.800"
                                 color="white"
                                 borderColor="gray.600"
+                                sx={{ "& option": { backgroundColor: "#232427", color: "#FFFFFF" } }}
                                 _focusVisible={{ borderColor: "orange.400", boxShadow: "0 0 0 1px rgba(251,146,60,0.5)" }}
                             >
                                 <option value="all">All status</option>
@@ -278,6 +311,30 @@ export default function InvoiceHistory() {
                                 <option value="partial">Partial</option>
                             </Select>
                         </Box>
+
+                        <Box>
+                            <Text fontSize="xs" color="muted" mb={1}>Period</Text>
+                            <Select value={dateRange} onChange={(e) => setDateRange(e.target.value)} width="190px" bg="gray.800" color="white" borderColor="gray.600" sx={{ "& option": { backgroundColor: "#232427", color: "#FFFFFF" } }} _focusVisible={{ borderColor: "orange.400", boxShadow: "0 0 0 1px rgba(251,146,60,0.5)" }}>
+                                <option value="current-month">Current month</option>
+                                <option value="last-month">Last month</option>
+                                <option value="current-year">Current year</option>
+                                <option value="last-year">Last year</option>
+                                <option value="current-financial-year">Current financial year</option>
+                                <option value="last-financial-year">Last financial year</option>
+                                <option value="custom">Custom range</option>
+                            </Select>
+                        </Box>
+
+                        {dateRange === "custom" && <>
+                            <Box>
+                                <Text fontSize="xs" color="muted" mb={1}>From</Text>
+                                <Input type="date" value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} width="165px" bg="gray.800" color="white" borderColor="gray.600" _focusVisible={{ borderColor: "orange.400", boxShadow: "0 0 0 1px rgba(251,146,60,0.5)" }} />
+                            </Box>
+                            <Box>
+                                <Text fontSize="xs" color="muted" mb={1}>To</Text>
+                                <Input type="date" value={customEndDate} min={customStartDate || undefined} onChange={(e) => setCustomEndDate(e.target.value)} width="165px" bg="gray.800" color="white" borderColor="gray.600" _focusVisible={{ borderColor: "orange.400", boxShadow: "0 0 0 1px rgba(251,146,60,0.5)" }} />
+                            </Box>
+                        </>}
 
                         <Box>
                             <Text fontSize="xs" color="muted" mb={1}>GST type</Text>
@@ -288,6 +345,7 @@ export default function InvoiceHistory() {
                                 bg="gray.800"
                                 color="white"
                                 borderColor="gray.600"
+                                sx={{ "& option": { backgroundColor: "#232427", color: "#FFFFFF" } }}
                                 _focusVisible={{ borderColor: "orange.400", boxShadow: "0 0 0 1px rgba(251,146,60,0.5)" }}
                             >
                                 <option value="all">GST + Non-GST</option>
