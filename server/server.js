@@ -311,7 +311,24 @@ function getStockStatus(stock) {
 }
 
 function generateBarcode() {
-    return `PRD-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const digits = "0123456789";
+
+    const randomFrom = (chars, count) =>
+        Array.from({ length: count }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+
+    const maxAttempts = 20;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const candidate = `${randomFrom(letters, 3)}-${randomFrom(digits, 3)}`;
+        const exists = db.prepare("SELECT 1 FROM products WHERE barcode = ?").get(candidate);
+        if (!exists) {
+            return candidate;
+        }
+    }
+
+    // Extremely unlikely fallback if 20 random attempts all collided
+    return `${randomFrom(letters, 3)}-${randomFrom(digits, 3)}-${Date.now().toString(36).slice(-2).toUpperCase()}`;
 }
 
 function generateInvoiceNumber() {
@@ -403,6 +420,7 @@ function encryptBarcodeValue(value) {
     const authTag = cipher.getAuthTag();
     return Buffer.concat([iv, authTag, encrypted]).toString("base64url");
 }
+
 
 function createBarcodeSvg(rawValue, details = {}, options = {}) {
     const config = {

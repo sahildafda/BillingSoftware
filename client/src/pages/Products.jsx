@@ -416,7 +416,7 @@ export default function Products() {
 
             const cards = Array.from({ length: count }, (_, index) => `
                 <div class="label-card" style="page-break-inside: avoid; margin: 12px 0; text-align: center;">
-                    <div style="font-size: 12px; font-weight: 600; margin-bottom: 8px;">${barcodeTarget.productName || "Product"}</div>
+                    <div style="font-size: 12px; font-weight: 600; margin-bottom: 8px;">${barcodeTarget.productName || "Product"} - Rs. ${barcodeTarget.productPrice || 0}</div>
                     <div style="display: flex; justify-content: center; align-items: center; padding: 6px;">${barcodeSvg}</div>
                     <div style="font-size: 12px; margin-top: 4px;">${barcodeTarget.barcode || "No barcode"}</div>
                 </div>
