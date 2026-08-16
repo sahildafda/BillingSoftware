@@ -215,6 +215,18 @@ db.exec(`
     )
 `);
 
+db.exec(`
+    CREATE TABLE IF NOT EXISTS email_summary_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        sentAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        trigger TEXT NOT NULL DEFAULT 'cron',
+        UNIQUE(userId, date),
+        FOREIGN KEY(userId) REFERENCES users(id)
+    )
+`);
+
 function createToken(user) {
     return jwt.sign(
         {
@@ -1011,88 +1023,44 @@ td {
 `;
 }
 
-async function sendDailySummaryEmail(userId) {
+async function sendDailySummaryEmail(userId, dateStr, triggerLabel = "cron") {
     const user = db.prepare(`
-        SELECT
-            id,
-            companyName,
-            ownerName,
-            email
+        SELECT id, companyName, ownerName, email
         FROM users
         WHERE id = ?
     `).get(userId);
 
-    if (!user) {
-        throw new Error("User not found");
-    }
-
-    if (!user.email) {
-        throw new Error("User does not have an email address");
-    }
-
+    if (!user) throw new Error("User not found");
+    if (!user.email) throw new Error("User does not have an email address");
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-        throw new Error(
-            "EMAIL_USER and EMAIL_PASS are not configured"
-        );
+        throw new Error("EMAIL_USER and EMAIL_PASS are not configured");
     }
 
-    const report = getTodaySalesReport(userId);
+    const targetDate = dateStr || getTodayDateString();
+    const report = getSalesReportForDate(userId, targetDate);
+    const html = generateDailySummaryEmail(user, report);
+    const pdfBuffer = await generateDailySalesPdf(user, report);
+    const transporter = createEmailTransporter();
 
-    const html = generateDailySummaryEmail(
-        user,
-        report
-    );
+    if (!transporter) {
+        throw new Error("EMAIL_USER and EMAIL_PASS are not configured");
+    }
 
-    const pdfBuffer = await generateDailySalesPdf(
-        user,
-        report
-    );
-
-    const transporter = nodemailer.createTransport({
-        host: process.env.EMAIL_HOST || "smtp.gmail.com",
-
-        port: Number(
-            process.env.EMAIL_PORT || 587
-        ),
-
-        secure:
-            Number(
-                process.env.EMAIL_PORT || 587
-            ) === 465,
-
-        auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASS,
-        },
-    });
-
-    const pdfFileName =
-        `Daily-Sales-${report.date}.pdf`;
+    const pdfFileName = `Daily-Sales-${report.date}.pdf`;
 
     const info = await transporter.sendMail({
-        from:
-            process.env.EMAIL_FROM ||
-            process.env.EMAIL_USER,
-
+        from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
         to: user.email,
-
-        subject:
-            `Daily Sales Report - ${report.date} - ${user.companyName}`,
-
+        subject: `Daily Sales Report - ${report.date} - ${user.companyName}`,
         html,
-
         attachments: [
-            {
-                filename: pdfFileName,
-                content: pdfBuffer,
-                contentType: "application/pdf",
-            },
+            { filename: pdfFileName, content: pdfBuffer, contentType: "application/pdf" },
         ],
     });
 
-    console.log(
-        `[Daily Summary] Email sent to ${user.email}: ${info.messageId}`
-    );
+    markSummarySent(userId, targetDate, triggerLabel);
+
+    console.log(`[Daily Summary] (${triggerLabel}) Email sent to ${user.email} for ${targetDate}: ${info.messageId}`);
 
     return {
         success: true,
@@ -1112,8 +1080,42 @@ function getTodayDateString() {
     }).format(new Date());
 }
 
-function getTodaySalesReport(userId) {
-    const today = getTodayDateString();
+function shiftDateString(dateStr, days) {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d));
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
+}
+
+function getYesterdayDateString() {
+    return shiftDateString(getTodayDateString(), -1);
+}
+
+function getDateOnlyIST(isoString) {
+    return new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Kolkata",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).format(new Date(isoString));
+}
+
+function hasSummaryBeenSent(userId, dateStr) {
+    return Boolean(
+        db.prepare("SELECT 1 FROM email_summary_log WHERE userId = ? AND date = ?").get(userId, dateStr)
+    );
+}
+
+function markSummarySent(userId, dateStr, triggerLabel) {
+    db.prepare(`
+        INSERT INTO email_summary_log (userId, date, trigger)
+        VALUES (?, ?, ?)
+        ON CONFLICT(userId, date) DO NOTHING
+    `).run(userId, dateStr, triggerLabel);
+}
+
+function getSalesReportForDate(userId, dateStr) {
+    const today = dateStr || getTodayDateString();
 
     // ----------------------------------------
     // BASIC SALES SUMMARY
@@ -1863,12 +1865,34 @@ app.post("/api/db/import", authenticateToken, backupUpload.single("databaseFile"
 });
 
 app.post("/api/auth/logout", authenticateToken, async (req, res) => {
+    const today = getTodayDateString();
+    let dailySummaryEmail = null;
+
+    try {
+        if (!hasSummaryBeenSent(req.user.id, today)) {
+            dailySummaryEmail = await sendDailySummaryEmail(req.user.id, today, "logout");
+        } else {
+            dailySummaryEmail = { success: true, skipped: true, reason: "Already sent today" };
+        }
+    } catch (error) {
+        console.error("[Daily Summary] Logout-triggered email failed:", error.message);
+        dailySummaryEmail = { success: false, error: error.message };
+    }
+
     try {
         const backup = await performDatabaseBackup();
-        return res.json({ message: "Logout successful and database backup created", backup });
+        return res.json({
+            message: "Logout successful and database backup created",
+            backup,
+            dailySummaryEmail,
+        });
     } catch (error) {
         console.error("[DB Backup] Logout backup failed:", error.message);
-        return res.status(500).json({ message: "Logout backup failed", error: error.message });
+        return res.status(500).json({
+            message: "Logout backup failed",
+            error: error.message,
+            dailySummaryEmail,
+        });
     }
 });
 
@@ -3341,97 +3365,109 @@ function getTodaySalesSummary(userId) {
     };
 }
 
-app.post(
-    "/api/reports/daily-summary/send",
-    authenticateToken,
-    async (req, res) => {
-        try {
-            const result =
-                await sendDailySummaryEmail(
-                    req.user.id
-                );
-
-            return res.json({
-                message:
-                    "Daily sales report sent successfully",
-                ...result,
-            });
-
-        } catch (error) {
-
-            console.error(
-                "[Daily Summary] Email failed:",
-                error
-            );
-
-            return res.status(500).json({
-                message:
-                    "Unable to send daily sales report",
-                error: error.message,
-            });
-        }
+app.post("/api/reports/daily-summary/send", authenticateToken, async (req, res) => {
+    try {
+        const result = await sendDailySummaryEmail(req.user.id, getTodayDateString(), "manual");
+        return res.json({ message: "Daily sales report sent successfully", ...result });
+    } catch (error) {
+        console.error("[Daily Summary] Email failed:", error);
+        return res.status(500).json({ message: "Unable to send daily sales report", error: error.message });
     }
-);
+});
 
 cron.schedule(
     "0 21 * * *",
     async () => {
-
-        console.log(
-            "[Daily Summary] Starting daily reports..."
-        );
+        console.log("[Daily Summary] Starting daily reports...");
 
         try {
-
+            const today = getTodayDateString();
             const users = db.prepare(`
-                SELECT
-                    id,
-                    email,
-                    companyName
+                SELECT id, email, companyName
                 FROM users
-                WHERE email IS NOT NULL
-                  AND email != ''
+                WHERE email IS NOT NULL AND email != ''
             `).all();
 
             for (const user of users) {
-
                 try {
-
-                    await sendDailySummaryEmail(
-                        user.id
-                    );
-
+                    if (hasSummaryBeenSent(user.id, today)) {
+                        console.log(`[Daily Summary] Already sent today for ${user.email}, skipping.`);
+                        continue;
+                    }
+                    await sendDailySummaryEmail(user.id, today, "cron");
                 } catch (error) {
-
-                    console.error(
-                        `[Daily Summary] Failed for ${user.email}:`,
-                        error.message
-                    );
-
+                    console.error(`[Daily Summary] Failed for ${user.email}:`, error.message);
                 }
-
             }
 
-            console.log(
-                "[Daily Summary] All reports completed."
-            );
-
+            console.log("[Daily Summary] All reports completed.");
         } catch (error) {
-
-            console.error(
-                "[Daily Summary] Scheduler failed:",
-                error
-            );
-
+            console.error("[Daily Summary] Scheduler failed:", error);
         }
-
     },
-    {
-        timezone: "Asia/Kolkata",
-    }
+    { timezone: "Asia/Kolkata" }
 );
+
+const MAX_CATCHUP_DAYS = 7; // safety cap so a long-closed app doesn't spam years of mail
+
+async function sendPendingDailySummaries() {
+    const yesterday = getYesterdayDateString();
+    const users = db.prepare(`
+        SELECT id, email, companyName, createdAt
+        FROM users
+        WHERE email IS NOT NULL AND email != ''
+    `).all();
+
+    for (const user of users) {
+        try {
+            const lastSentRow = db.prepare(
+                "SELECT MAX(date) AS lastDate FROM email_summary_log WHERE userId = ?"
+            ).get(user.id);
+
+            const accountStartDate = getDateOnlyIST(user.createdAt);
+            let cursor = lastSentRow?.lastDate ? shiftDateString(lastSentRow.lastDate, 1) : accountStartDate;
+            if (cursor < accountStartDate) cursor = accountStartDate;
+
+            const pendingDates = [];
+            while (cursor <= yesterday) {
+                pendingDates.push(cursor);
+                cursor = shiftDateString(cursor, 1);
+            }
+
+            if (pendingDates.length === 0) continue;
+
+            // If too many days piled up, only actually send the most recent ones
+            // and just log the rest as skipped so we don't retry them forever.
+            const datesToSkip = pendingDates.length > MAX_CATCHUP_DAYS
+                ? pendingDates.slice(0, pendingDates.length - MAX_CATCHUP_DAYS)
+                : [];
+            const datesToSend = pendingDates.length > MAX_CATCHUP_DAYS
+                ? pendingDates.slice(pendingDates.length - MAX_CATCHUP_DAYS)
+                : pendingDates;
+
+            datesToSkip.forEach((date) => markSummarySent(user.id, date, "skipped-too-old"));
+
+            console.log(`[Daily Summary] Sending ${datesToSend.length} pending report(s) for ${user.email}`);
+
+            for (const pendingDate of datesToSend) {
+                try {
+                    await sendDailySummaryEmail(user.id, pendingDate, "catchup");
+                } catch (error) {
+                    console.error(`[Daily Summary] Pending send failed for ${user.email} on ${pendingDate}:`, error.message);
+                    break; // stop here; remaining dates will be retried next launch
+                }
+            }
+        } catch (error) {
+            console.error(`[Daily Summary] Pending summary check failed for ${user.email}:`, error.message);
+        }
+    }
+}
 
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
     console.log("Daily sales summary scheduled for 9:00 PM IST");
+
+    sendPendingDailySummaries().catch((error) => {
+        console.error("[Daily Summary] Startup catch-up failed:", error);
+    });
 });
