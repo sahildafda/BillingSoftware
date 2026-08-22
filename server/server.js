@@ -1,5 +1,8 @@
 const path = require("path");
-require("dotenv").config({ path: path.join(__dirname, ".env") });
+const fs = require("fs");
+require("dotenv").config({
+    path: path.join(__dirname, ".env")
+});
 
 const express = require("express");
 const cors = require("cors");
@@ -16,15 +19,58 @@ const Database = require("better-sqlite3");
 const { createDatabaseBackup, initializeBackupScheduler, resolveBackupHour } = require("./dbBackup");
 
 const app = express();
-const PORT = 5000;
-const JWT_SECRET = process.env.JWT_SECRET || "billing-software-secret";
-const DB_BACKUP_HOUR = resolveBackupHour(process.env.DB_BACKUP_HOUR || "6");
-const DB_FILE_PATH = path.join(__dirname, "database.sqlite");
-const backupUpload = multer({ dest: path.join(__dirname, "tmp-uploads"), limits: { fileSize: 100 * 1024 * 1024 } });
+
+const PORT = Number(process.env.PORT || 5000);
+
+const JWT_SECRET =
+    process.env.JWT_SECRET || "billing-software-secret";
+
+const DB_BACKUP_HOUR =
+    resolveBackupHour(process.env.DB_BACKUP_HOUR || "6");
+
+const DB_DAILY_CRON = process.env.DB_DAILY_CRON || "0 21 * * *";
+
+// --------------------------------------------------
+// Application data directory
+// --------------------------------------------------
+
+const DATA_DIR =
+    process.env.BILLING_DATA_DIR || __dirname;
+
+fs.mkdirSync(DATA_DIR, { recursive: true });
+
+const DB_FILE_PATH =
+    path.join(DATA_DIR, "database.sqlite");
+
+const BACKUP_DIR =
+    path.join(DATA_DIR, "backups");
+
+const TEMP_UPLOAD_DIR =
+    path.join(DATA_DIR, "tmp-uploads");
+
+fs.mkdirSync(BACKUP_DIR, { recursive: true });
+fs.mkdirSync(TEMP_UPLOAD_DIR, { recursive: true });
+
+// --------------------------------------------------
+// React frontend location
+// --------------------------------------------------
+
+const CLIENT_DIST_PATH =
+    process.env.CLIENT_DIST_PATH ||
+    path.join(__dirname, "..", "client", "dist");
+
+const backupUpload = multer({
+    dest: TEMP_UPLOAD_DIR,
+    limits: {
+        fileSize: 100 * 1024 * 1024
+    }
+});
+
 let db = new Database(DB_FILE_PATH);
+
 let backupScheduler = initializeBackupScheduler({
     dbInstance: db,
-    backupDirectory: path.join(__dirname, "backups"),
+    backupDirectory: BACKUP_DIR,
     baseName: "database",
     backupHour: DB_BACKUP_HOUR,
 });
@@ -32,7 +78,26 @@ let backupScheduler = initializeBackupScheduler({
 app.use(cors());
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: true, limit: "15mb" }));
-app.use("/api/db/backups", express.static(path.join(__dirname, "backups")));
+
+app.use(
+    "/api/db/backups",
+    express.static(BACKUP_DIR)
+);
+
+// Serve React production build
+if (fs.existsSync(CLIENT_DIST_PATH)) {
+    app.use(express.static(CLIENT_DIST_PATH));
+
+    console.log(
+        "[Frontend] Serving React build from:",
+        CLIENT_DIST_PATH
+    );
+} else {
+    console.log(
+        "[Frontend] React build not found:",
+        CLIENT_DIST_PATH
+    );
+}
 
 db.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -3147,40 +3212,76 @@ app.post("/api/billing/invoices", authenticateToken, async (req, res) => {
             gstNo: normalizedGstNo
         };
 
-        // Generate actual invoice PDF in memory
-        const pdfBuffer = await generateInvoicePdf(
-            populatedInvoice,
-            invoiceCustomer,
-            req.user
-        );
-
-        // Send SMS
-        const smsResult = await sendInvoiceSMS(
-            populatedInvoice,
-            invoiceCustomer,
-            req.user
-        );
-
-        // Send email with PDF attachment
-        const emailResult = await sendInvoiceEmail(
-            populatedInvoice,
-            invoiceCustomer,
-            req.user,
-            pdfBuffer
-        );
-
-        return res.status(201).json({
+        // Return the invoice response immediately.
+        // Email/SMS will be processed in the background.
+        res.status(201).json({
             message: "Invoice created successfully",
             invoice: populatedInvoice,
-            sms: smsResult,
-            email: emailResult
+            notifications: {
+                queued: true
+            }
         });
-        
-        return res.status(201).json({
-            message: "Invoice created successfully",
-            invoice: populatedInvoice,
-            whatsapp: whatsappResult,
+
+        // --------------------------------------------------
+        // Background notification processing
+        // --------------------------------------------------
+
+        setImmediate(async () => {
+            try {
+                console.log(
+                    `[Invoice Notifications] Processing ${populatedInvoice.invoiceNumber}`
+                );
+
+                // Generate PDF
+                const pdfBuffer = await generateInvoicePdf(
+                    populatedInvoice,
+                    invoiceCustomer,
+                    req.user
+                );
+
+                console.log(
+                    `[Invoice Notifications] PDF generated for ${populatedInvoice.invoiceNumber}`
+                );
+
+                // Send SMS and Email in parallel
+                const [smsResult, emailResult] = await Promise.allSettled([
+                    sendInvoiceSMS(
+                        populatedInvoice,
+                        invoiceCustomer,
+                        req.user
+                    ),
+
+                    sendInvoiceEmail(
+                        populatedInvoice,
+                        invoiceCustomer,
+                        req.user,
+                        pdfBuffer
+                    )
+                ]);
+
+                console.log(
+                    `[Invoice Notifications] Completed for ${populatedInvoice.invoiceNumber}`,
+                    {
+                        sms:
+                            smsResult.status === "fulfilled"
+                                ? smsResult.value
+                                : smsResult.reason,
+
+                        email:
+                            emailResult.status === "fulfilled"
+                                ? emailResult.value
+                                : emailResult.reason
+                    }
+                );
+
+            } catch (error) {
+                console.error(
+                    `[Invoice Notifications] Failed for ${populatedInvoice.invoiceNumber}:`,
+                    error
+                );
+            }
         });
+
     } catch (error) {
         console.error("Invoice creation failed:", error);
         return res.status(400).json({ message: error.message || "Unable to create invoice" });
@@ -4040,6 +4141,24 @@ async function sendPendingDailySummaries() {
         }
     }
 }
+
+// React Router fallback
+app.use((req, res, next) => {
+    if (req.path.startsWith("/api/")) {
+        return next();
+    }
+
+    const indexPath = path.join(
+        CLIENT_DIST_PATH,
+        "index.html"
+    );
+
+    if (fs.existsSync(indexPath)) {
+        return res.sendFile(indexPath);
+    }
+
+    next();
+});
 
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);

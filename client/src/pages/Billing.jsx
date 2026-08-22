@@ -63,6 +63,7 @@ export default function Billing() {
     const [cart, setCart] = useState([]);
     const [payments, setPayments] = useState([{ id: Date.now(), method: "cash", amount: "0" }]);
     const [statusMessage, setStatusMessage] = useState("");
+    const [isFinalizing, setIsFinalizing] = useState(false);
 
     async function loadCustomers(searchText = "") {
         try {
@@ -316,13 +317,19 @@ export default function Billing() {
     const showCustomerSuggestions = !selectedCustomer && customerQuery.trim() && filteredCustomers.length > 0;
 
     async function finalizeInvoice() {
-        if (!canFinalize) {
-            setStatusMessage("Payment total must cover the amount remaining after customer credit.");
+        if (!canFinalize || isFinalizing) {
+            if (!canFinalize) {
+                setStatusMessage(
+                    "Payment total must cover the amount remaining after customer credit."
+                );
+            }
             return;
         }
 
         const payload = {
-            customer: selectedCustomer || { customerName: customerQuery || "Walk-in Customer" },
+            customer: selectedCustomer || {
+                customerName: customerQuery || "Walk-in Customer"
+            },
             customerId: selectedCustomer?.id || null,
             items: cart.map((item) => ({
                 productId: item.id,
@@ -333,27 +340,58 @@ export default function Billing() {
                 gstPercent: item.gst,
                 discountPercent: item.discount,
             })),
-            payments: payments.filter((payment) => Number(payment.amount || 0) > 0).map((payment) => ({
-                method: payment.method,
-                amount: Number(payment.amount || 0),
-            })),
+            payments: payments
+                .filter((payment) => Number(payment.amount || 0) > 0)
+                .map((payment) => ({
+                    method: payment.method,
+                    amount: Number(payment.amount || 0),
+                })),
         };
 
         try {
+            setIsFinalizing(true);
+            setStatusMessage("Finalizing billing...");
+
             const token = localStorage.getItem("authToken");
-            const response = await axios.post("/api/billing/invoices", payload, {
-                headers: token ? { Authorization: `Bearer ${token}` } : {},
-            });
+
+            const response = await axios.post(
+                "/api/billing/invoices",
+                payload,
+                {
+                    headers: token
+                        ? { Authorization: `Bearer ${token}` }
+                        : {},
+                }
+            );
+
             const invoice = response?.data?.invoice;
-            setStatusMessage(`Invoice ${invoice?.invoiceNumber || "created"} saved successfully.`);
+
+            setStatusMessage(
+                `Invoice ${invoice?.invoiceNumber || "created"} saved successfully.`
+            );
+
             setCart([]);
-            setPayments([{ id: Date.now(), method: "cash", amount: "0" }]);
+            setPayments([
+                {
+                    id: Date.now(),
+                    method: "cash",
+                    amount: "0"
+                }
+            ]);
             setCustomerQuery("");
             setSelectedCustomer(null);
+
         } catch (err) {
-            const message = err?.response?.data?.message || "Unable to save invoice.";
+            const message =
+                err?.response?.data?.message ||
+                "Unable to save invoice.";
+
             setStatusMessage(message);
             console.error(err);
+
+        } finally {
+            setIsFinalizing(false);
+            focusBarcodeInput();
         }
     }
 
@@ -637,6 +675,8 @@ export default function Billing() {
                             colorScheme="orange"
                             size="lg"
                             isDisabled={!canFinalize}
+                            isLoading={isFinalizing}
+                            loadingText="Finalizing..."
                             onClick={finalizeInvoice}
                         >
                             Finalize billing
