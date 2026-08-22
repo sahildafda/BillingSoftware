@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import {
     Box,
@@ -56,6 +56,7 @@ export default function Billing() {
     const [customerFormError, setCustomerFormError] = useState("");
 
     const [barcodeInput, setBarcodeInput] = useState("");
+    const barcodeInputRef = useRef(null);
     const [productQuery, setProductQuery] = useState("");
     const [productResults, setProductResults] = useState([]);
     const [productLoading, setProductLoading] = useState(false);
@@ -82,6 +83,12 @@ export default function Billing() {
         }
     }
 
+    function focusBarcodeInput() {
+        requestAnimationFrame(() => {
+            barcodeInputRef.current?.focus();
+        });
+    }
+
     async function loadProducts(searchText = "") {
         try {
             setProductLoading(true);
@@ -94,6 +101,8 @@ export default function Billing() {
                     : Array.isArray(payload?.items)
                         ? payload.items
                         : [];
+
+            debugger;
             setProductResults(rows);
         } catch (err) {
             console.error(err);
@@ -114,6 +123,9 @@ export default function Billing() {
             setProductResults([]);
         }
     }, [productQuery]);
+    useEffect(() => {
+        focusBarcodeInput();
+    }, []);
 
     const filteredCustomers = useMemo(() => {
         const term = (customerQuery || "").trim().toLowerCase();
@@ -152,47 +164,66 @@ export default function Billing() {
         setStatusMessage(`${product.productName} added to cart.`);
     }
 
-    function handleBarcodeScan() {
-        const code = barcodeInput.trim();
+    async function handleBarcodePaste(event) {
+        const pastedValue = event.clipboardData?.getData("text")?.trim();
+
+        if (!pastedValue) {
+            return;
+        }
+
+        // Prevent normal paste into the input
+        event.preventDefault();
+
+        setBarcodeInput(pastedValue);
+
+        // Immediately search and add the product
+        await handleBarcodeScan(pastedValue);
+    }
+
+    async function handleBarcodeScan(barcodeValue = barcodeInput) {
+        const code = String(barcodeValue || "").trim();
+
         if (!code) {
-            setStatusMessage("Enter item barcode or SKU.");
+            setStatusMessage("Please scan or enter a barcode.");
+            focusBarcodeInput();
             return;
         }
 
-        const exactMatch = productResults.find((product) => String(product.barcode || "").toLowerCase() === code.toLowerCase())
-            || productResults.find((product) => String(product.productName || "").toLowerCase() === code.toLowerCase());
+        try {
+            setProductLoading(true);
+            setStatusMessage("");
 
-        if (exactMatch) {
-            addToCart(exactMatch);
+            const response = await productService.getProductByBarcode(code);
+
+            const product = response?.data?.product;
+
+            if (!product) {
+                setStatusMessage(`No product found for barcode: ${code}`);
+                return;
+            }
+
+            addToCart(product);
+
             setBarcodeInput("");
-            return;
+        } catch (error) {
+            console.error("Barcode scan error:", error);
+
+            if (error?.response?.status === 404) {
+                setStatusMessage(`No product found for barcode: ${code}`);
+            } else if (error?.response?.status === 401) {
+                setStatusMessage("Your session has expired. Please login again.");
+            } else {
+                setStatusMessage(
+                    error?.response?.data?.message ||
+                    "Could not find product for this barcode."
+                );
+            }
+        } finally {
+            setProductLoading(false);
+
+            // Keep barcode input ready for next scan
+            focusBarcodeInput();
         }
-
-        productService.getProducts({ search: code, page: 1, limit: 10 })
-            .then((res) => {
-                const payload = res?.data;
-                const rows = Array.isArray(payload)
-                    ? payload
-                    : Array.isArray(payload?.products)
-                        ? payload.products
-                        : Array.isArray(payload?.items)
-                            ? payload.items
-                            : [];
-                const match = rows.find((product) => String(product.barcode || "").toLowerCase() === code.toLowerCase())
-                    || rows.find((product) => String(product.productName || "").toLowerCase() === code.toLowerCase());
-
-                if (match) {
-                    addToCart(match);
-                    setBarcodeInput("");
-                    return;
-                }
-
-                setStatusMessage("No product matches that barcode or SKU.");
-            })
-            .catch((err) => {
-                console.error(err);
-                setStatusMessage("Could not find product for that barcode.");
-            });
     }
 
     function updateCartQuantity(id, nextQty) {
@@ -247,6 +278,9 @@ export default function Billing() {
                 customerName: name,
                 contactNumber: customerForm.contactNumber.trim(),
                 email: customerForm.email.trim(),
+                credit: customerForm.credit || 0,
+                firmName: customerForm.firmName?.trim() || "",
+                gstNo: customerForm.gstNo?.trim() || ""
             });
             const created = response?.data?.customer || response?.data;
             setSelectedCustomer(created);
@@ -255,6 +289,9 @@ export default function Billing() {
             setCustomerFormError("");
             setIsCustomerModalOpen(false);
             setStatusMessage(`${created?.customerName || name} added to customers.`);
+
+            // Automatically focus barcode input
+            focusBarcodeInput();
         } catch (err) {
             const message = err?.response?.data?.message || "Could not add customer.";
             setCustomerFormError(message);
@@ -387,13 +424,19 @@ export default function Billing() {
                             <Text fontWeight={600} mb={2}>Scan product by barcode / SKU</Text>
                             <HStack>
                                 <Input
+                                    ref={barcodeInputRef}
                                     value={barcodeInput}
                                     onChange={(e) => setBarcodeInput(e.target.value)}
+                                    onPaste={handleBarcodePaste}
                                     placeholder="Scan barcode or SKU"
                                     bg="card"
                                     borderColor="border"
+                                    autoComplete="off"
                                     onKeyDown={(e) => {
-                                        if (e.key === "Enter") handleBarcodeScan();
+                                        if (e.key === "Enter") {
+                                            e.preventDefault();
+                                            handleBarcodeScan();
+                                        }
                                     }}
                                 />
                                 <Button leftIcon={<LuScanLine />} colorScheme="orange" onClick={handleBarcodeScan}>Add</Button>
@@ -619,6 +662,7 @@ export default function Billing() {
                             <FormControl>
                                 <FormLabel>Mobile number</FormLabel>
                                 <Input
+                                    type="number"
                                     value={customerForm.contactNumber}
                                     onChange={(e) => setCustomerForm({ ...customerForm, contactNumber: e.target.value })}
                                 />
@@ -628,6 +672,30 @@ export default function Billing() {
                                 <Input
                                     value={customerForm.email}
                                     onChange={(e) => setCustomerForm({ ...customerForm, email: e.target.value })}
+                                />
+                            </FormControl>
+                            <FormControl>
+                                <FormLabel>Credit</FormLabel>
+                                <Input
+                                    type="number"
+                                    value={customerForm.credit}
+                                    onChange={(e) => setCustomerForm({ ...customerForm, credit: e.target.value })}
+                                />
+                            </FormControl>
+                            <FormControl>
+                                <FormLabel>Firm Name</FormLabel>
+                                <Input
+                                    type="text"
+                                    value={customerForm.firmName}
+                                    onChange={(e) => setCustomerForm({ ...customerForm, firmName: e.target.value })}
+                                />
+                            </FormControl>
+                            <FormControl>
+                                <FormLabel>GST NO</FormLabel>
+                                <Input
+                                    type="text"
+                                    value={customerForm.gstNo}
+                                    onChange={(e) => setCustomerForm({ ...customerForm, gstNo: e.target.value })}
                                 />
                             </FormControl>
                             {customerFormError && (

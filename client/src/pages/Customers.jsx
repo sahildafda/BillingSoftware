@@ -54,7 +54,7 @@ import AppLayout from "../components/layout/AppLayout";
 
 function CustomerForm({ initial, onClose, onSaved }) {
     const [form, setForm] = useState(
-        initial || { customerName: "", contactNumber: "", email: "", credit: 0 }
+        initial || { customerName: "", contactNumber: "", email: "", credit: 0, firmName: "", gstNo: "" }
     );
     const [errors, setErrors] = useState({});
     const [saving, setSaving] = useState(false);
@@ -126,6 +126,16 @@ function CustomerForm({ initial, onClose, onSaved }) {
                     <FormLabel>Credit</FormLabel>
                     <Input type="number" min={0} value={form.credit} onChange={(e) => setForm({ ...form, credit: Number(e.target.value) })} />
                     <FormErrorMessage>{errors.credit}</FormErrorMessage>
+                </FormControl>
+
+                <FormControl>
+                    <FormLabel>Firm name (optional)</FormLabel>
+                    <Input value={form.firmName} onChange={(e) => setForm({ ...form, firmName: e.target.value })} />
+                </FormControl>
+
+                <FormControl>
+                    <FormLabel>GST No (optional)</FormLabel>
+                    <Input value={form.gstNo} onChange={(e) => setForm({ ...form, gstNo: e.target.value })} />
                 </FormControl>
             </SimpleGrid>
 

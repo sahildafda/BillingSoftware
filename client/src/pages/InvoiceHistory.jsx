@@ -85,8 +85,10 @@ function InvoiceReceiptModal({ invoice, isOpen, onClose }) {
                             <Box>
                                 <Text fontWeight={700}>Customer</Text>
                                 <Text>{invoice.customerName || "Walk-in Customer"}</Text>
+                                {invoice.firmName && <Text fontSize="sm">{invoice.firmName}</Text>}
                                 {invoice.contactNumber && <Text fontSize="sm">{invoice.contactNumber}</Text>}
                                 {invoice.email && <Text fontSize="sm">{invoice.email}</Text>}
+                                {invoice.gstNo && <Text fontSize="sm">GSTIN: {invoice.gstNo}</Text>}
                             </Box>
 
                             <Divider />
