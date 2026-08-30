@@ -13,6 +13,7 @@
   "dependencies": {
     "bcryptjs": "^3.0.0",
     "better-sqlite3": "^12.11.1",
+    "billingsoftware": "file:..",
     "bwip-js": "^4.6.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",

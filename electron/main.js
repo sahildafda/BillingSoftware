@@ -12,7 +12,21 @@ function startBackend() {
         ? path.join(__dirname, "..", "server", "server.js")
         : path.join(process.resourcesPath, "server", "server.js");
 
-    console.log("Starting backend:", serverPath);
+    const clientDistPath = isDev
+        ? path.join(__dirname, "..", "client", "dist")
+        : path.join(app.getAppPath(), "client", "dist");
+
+    const dataDir = isDev
+        ? path.join(__dirname, "..", "server")
+        : path.join(app.getPath("userData"), "data");
+
+    console.log("=================================");
+    console.log("Starting Billing Software");
+    console.log("Packaged:", app.isPackaged);
+    console.log("Server:", serverPath);
+    console.log("Client:", clientDistPath);
+    console.log("Data:", dataDir);
+    console.log("=================================");
 
     serverProcess = spawn(
         process.execPath,
@@ -23,26 +37,9 @@ function startBackend() {
 
                 ELECTRON_RUN_AS_NODE: "1",
 
-                BILLING_DATA_DIR: isDev
-                    ? path.join(__dirname, "..", "server")
-                    : path.join(
-                        app.getPath("userData"),
-                        "data"
-                    ),
+                BILLING_DATA_DIR: dataDir,
 
-                CLIENT_DIST_PATH: isDev
-                    ? path.join(
-                        __dirname,
-                        "..",
-                        "client",
-                        "dist"
-                    )
-                    : path.join(
-                        process.resourcesPath,
-                        "app",
-                        "client",
-                        "dist"
-                    )
+                CLIENT_DIST_PATH: clientDistPath
             },
 
             stdio: "pipe",
@@ -71,10 +68,12 @@ function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1400,
         height: 900,
+
         autoHideMenuBar: true,
 
         webPreferences: {
             preload: path.join(__dirname, "preload.js"),
+
             contextIsolation: true,
             nodeIntegration: false
         }
@@ -83,21 +82,27 @@ function createWindow() {
     mainWindow.setMenuBarVisibility(false);
 
     if (isDev) {
-        // Development
         mainWindow.loadURL("http://localhost:5173");
     } else {
-        // Production
         mainWindow.loadURL("http://localhost:5000");
     }
+
+    mainWindow.webContents.on("did-fail-load", (event, errorCode, errorDescription) => {
+        console.error(
+            "Electron failed to load:",
+            errorCode,
+            errorDescription
+        );
+    });
 }
 
 app.whenReady().then(() => {
     startBackend();
 
-    // Give the backend a moment to start
+    // Give Express time to start
     setTimeout(() => {
         createWindow();
-    }, 2000);
+    }, 2500);
 });
 
 app.on("window-all-closed", () => {

@@ -7,7 +7,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "electron": "electron electron/main.js",
     "build:client": "npm --prefix client run build",
-    "dist": "npm run build:client && electron-builder --win"
+    "dist": "npm run build:client && electron-builder --win",
+    "prepare:server": "npm --prefix server install --omit=dev"
   },
   "keywords": [],
   "author": "",
@@ -17,11 +18,11 @@
     "bcryptjs": "^3.0.3",
     "concurrently": "^10.0.3",
     "cross-env": "^10.1.0",
-    "electron": "^43.1.1",
     "jsonwebtoken": "^9.0.3",
     "wait-on": "^9.0.10"
   },
   "devDependencies": {
+    "electron": "^43.1.1",
     "electron-builder": "^26.15.3"
   },
   "build": {
@@ -39,9 +40,20 @@
     "extraResources": [
       {
         "from": "server",
-        "to": "server"
+        "to": "server",
+        "filter": [
+          "!node_modules/**",
+          "!database.sqlite",
+          "!backups/**",
+          "!tmp-uploads/**"
+        ]
+      },
+      {
+        "from": "server/node_modules",
+        "to": "server/node_modules"
       }
     ],
+    "forceCodeSigning": false,
     "win": {
       "target": [
         {
