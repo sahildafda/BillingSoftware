@@ -59,16 +59,40 @@ function InvoiceReceiptModal({ invoice, isOpen, onClose }) {
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} size="xl">
-            <ModalOverlay />
-            <ModalContent bg="white" color="black" p={2}>
-                <ModalHeader>
+        <>
+            <style>{`
+                @media print {
+                    body * {
+                        visibility: hidden !important;
+                    }
+
+                    .receipt-print,
+                    .receipt-print * {
+                        visibility: visible !important;
+                    }
+
+                    .receipt-print {
+                        position: absolute !important;
+                        inset: 0 auto auto 0 !important;
+                        width: 100% !important;
+                        padding: 0 !important;
+                    }
+
+                    .receipt-print-controls {
+                        display: none !important;
+                    }
+                }
+            `}</style>
+            <Modal isOpen={isOpen} onClose={onClose} size="xl">
+                <ModalOverlay />
+                <ModalContent bg="white" color="black" p={2}>
+                <ModalHeader className="receipt-print-controls">
                     <HStack justify="space-between">
                         <Text>Invoice Receipt</Text>
                         <Button size="sm" leftIcon={<LuPrinter />} onClick={printReceipt}>Print</Button>
                     </HStack>
                 </ModalHeader>
-                <ModalCloseButton color="black" />
+                <ModalCloseButton className="receipt-print-controls" color="black" />
                 <ModalBody>
                     <Box className="receipt-print" p={4}>
                         <VStack align="stretch" spacing={4}>
@@ -88,7 +112,6 @@ function InvoiceReceiptModal({ invoice, isOpen, onClose }) {
                                 {invoice.firmName && <Text fontSize="sm">{invoice.firmName}</Text>}
                                 {invoice.contactNumber && <Text fontSize="sm">{invoice.contactNumber}</Text>}
                                 {invoice.email && <Text fontSize="sm">{invoice.email}</Text>}
-                                {invoice.gstNo && <Text fontSize="sm">GSTIN: {invoice.gstNo}</Text>}
                             </Box>
 
                             <Divider />
@@ -111,10 +134,9 @@ function InvoiceReceiptModal({ invoice, isOpen, onClose }) {
                             <Divider />
 
                             <VStack align="stretch" spacing={2}>
-                                <Flex justify="space-between"><Text>Subtotal</Text><Text>{formatMoney(invoice.subtotal)}</Text></Flex>
-                                <Flex justify="space-between"><Text>GST</Text><Text>{formatMoney(invoice.gstTotal)}</Text></Flex>
+                                <Flex justify="space-between"><Text>Total (Including GST)</Text><Text>{formatMoney(invoice.subtotal)}</Text></Flex>
                                 <Flex justify="space-between"><Text>Discount</Text><Text>- {formatMoney(invoice.discountTotal)}</Text></Flex>
-                                <Flex justify="space-between" fontWeight={700}><Text>Total</Text><Text>{formatMoney(invoice.total)}</Text></Flex>
+                                <Flex justify="space-between" fontWeight={700}><Text>Grand Total</Text><Text>{formatMoney(invoice.total)}</Text></Flex>
                             </VStack>
 
                             <Divider />
@@ -133,8 +155,9 @@ function InvoiceReceiptModal({ invoice, isOpen, onClose }) {
                         </VStack>
                     </Box>
                 </ModalBody>
-            </ModalContent>
-        </Modal>
+                </ModalContent>
+            </Modal>
+        </>
     );
 }
 
@@ -194,7 +217,7 @@ function ReturnInvoiceModal({ invoice, isOpen, onClose, onReturned }) {
     return (
         <Modal isOpen={isOpen} onClose={onClose} isCentered>
             <ModalOverlay />
-            <ModalContent bg="surface" color="white">
+            <ModalContent bg="surface" color="text">
                 <ModalHeader>Return items to customer credit</ModalHeader>
                 <ModalCloseButton />
                 <ModalBody>
@@ -211,7 +234,7 @@ function ReturnInvoiceModal({ invoice, isOpen, onClose, onReturned }) {
                             );
                         })}
                     </VStack>
-                    {error && <Text color="red.300" fontSize="sm" mt={3}>{error}</Text>}
+                    {error && <Text color="danger" fontSize="sm" mt={3}>{error}</Text>}
                 </ModalBody>
                 <ModalFooter><Button variant="ghost" onClick={onClose}>Cancel</Button><Button colorScheme="orange" ml={3} onClick={submitReturn} isLoading={saving}>Process return</Button></ModalFooter>
             </ModalContent>
@@ -228,15 +251,39 @@ export default function InvoiceHistory() {
     const [customStartDate, setCustomStartDate] = useState("");
     const [customEndDate, setCustomEndDate] = useState("");
     const [recordLimit, setRecordLimit] = useState("");
+    const [searchQuery, setSearchQuery] = useState("");
     const [selectedInvoice, setSelectedInvoice] = useState(null);
     const [returnInvoice, setReturnInvoice] = useState(null);
     const [statusMessage, setStatusMessage] = useState("");
+
+    const filteredInvoices = useMemo(() => {
+        const query = searchQuery.trim().toLocaleLowerCase();
+        if (!query) return invoices;
+
+        return invoices.filter((invoice) => {
+            const paymentMethods = (invoice.payments || [])
+                .map((payment) => PAYMENT_METHOD_LABELS[payment.method] || payment.method)
+                .join(" ");
+            const searchableValues = [
+                invoice.invoiceNumber,
+                invoice.customerName,
+                invoice.firmName,
+                invoice.contactNumber,
+                invoice.email,
+                invoice.gstNo,
+                invoice.status,
+                paymentMethods,
+            ];
+
+            return searchableValues.some((value) => String(value || "").toLocaleLowerCase().includes(query));
+        });
+    }, [invoices, searchQuery]);
 
     const effectiveRecordLimit = recordLimit === "" ? "all" : String(Math.max(1, Number(recordLimit) || 1));
     const selectedDates = useMemo(() => dateRange === "custom"
         ? { startDate: customStartDate, endDate: customEndDate }
         : getDateRange(dateRange), [dateRange, customStartDate, customEndDate]);
-    const reportRows = useMemo(() => getReportRecords(invoices, gstFilter, effectiveRecordLimit), [invoices, gstFilter, effectiveRecordLimit]);
+    const reportRows = useMemo(() => getReportRecords(filteredInvoices, gstFilter, effectiveRecordLimit), [filteredInvoices, gstFilter, effectiveRecordLimit]);
     const reportSummary = useMemo(() => getReportSummary(reportRows), [reportRows]);
 
     async function loadInvoices() {
@@ -263,7 +310,7 @@ export default function InvoiceHistory() {
     const customerBalanceSummary = useMemo(() => {
         const summary = {};
 
-        invoices.forEach((invoice) => {
+        filteredInvoices.forEach((invoice) => {
             const customerName = invoice.customerName || "Walk-in Customer";
             const paidAmount = (invoice.payments || []).reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
             const balance = Number(invoice.total || 0) - paidAmount;
@@ -274,18 +321,18 @@ export default function InvoiceHistory() {
             customerName,
             balance,
         }));
-    }, [invoices]);
+    }, [filteredInvoices]);
 
     const paymentSummary = useMemo(() => {
         const summary = {};
-        invoices.forEach((invoice) => {
+        filteredInvoices.forEach((invoice) => {
             (invoice.payments || []).forEach((payment) => {
                 const method = payment.method || "cash";
                 summary[method] = (summary[method] || 0) + Number(payment.amount || 0);
             });
         });
         return summary;
-    }, [invoices]);
+    }, [filteredInvoices]);
 
     return (
         <AppLayout>
@@ -297,15 +344,30 @@ export default function InvoiceHistory() {
                     </Box>
                     <HStack spacing={3} wrap="wrap" align="flex-end">
                         <Box>
+                            <Text fontSize="xs" color="muted" mb={1}>Search invoices</Text>
+                            <Input
+                                type="search"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                placeholder="Invoice, customer, GST..."
+                                width="240px"
+                                bg="card"
+                                color="text"
+                                borderColor="border"
+                                _placeholder={{ color: "muted" }}
+                                _focusVisible={{ borderColor: "orange.400", boxShadow: "0 0 0 1px rgba(251,146,60,0.5)" }}
+                            />
+                        </Box>
+                        <Box>
                             <Text fontSize="xs" color="muted" mb={1}>Status</Text>
                             <Select
                                 value={statusFilter}
                                 onChange={(e) => setStatusFilter(e.target.value)}
                                 width="160px"
-                                bg="gray.800"
-                                color="white"
-                                borderColor="gray.600"
-                                sx={{ "& option": { backgroundColor: "#232427", color: "#FFFFFF" } }}
+                                bg="card"
+                                color="text"
+                                borderColor="border"
+                                sx={{ "& option": { backgroundColor: "var(--chakra-colors-card)", color: "var(--chakra-colors-text)" } }}
                                 _focusVisible={{ borderColor: "orange.400", boxShadow: "0 0 0 1px rgba(251,146,60,0.5)" }}
                             >
                                 <option value="all">All status</option>
@@ -316,7 +378,7 @@ export default function InvoiceHistory() {
 
                         <Box>
                             <Text fontSize="xs" color="muted" mb={1}>Period</Text>
-                            <Select value={dateRange} onChange={(e) => setDateRange(e.target.value)} width="190px" bg="gray.800" color="white" borderColor="gray.600" sx={{ "& option": { backgroundColor: "#232427", color: "#FFFFFF" } }} _focusVisible={{ borderColor: "orange.400", boxShadow: "0 0 0 1px rgba(251,146,60,0.5)" }}>
+                            <Select value={dateRange} onChange={(e) => setDateRange(e.target.value)} width="190px" bg="card" color="text" borderColor="border" sx={{ "& option": { backgroundColor: "var(--chakra-colors-card)", color: "var(--chakra-colors-text)" } }} _focusVisible={{ borderColor: "orange.400", boxShadow: "0 0 0 1px rgba(251,146,60,0.5)" }}>
                                 <option value="current-month">Current month</option>
                                 <option value="last-month">Last month</option>
                                 <option value="current-year">Current year</option>
@@ -330,11 +392,11 @@ export default function InvoiceHistory() {
                         {dateRange === "custom" && <>
                             <Box>
                                 <Text fontSize="xs" color="muted" mb={1}>From</Text>
-                                <Input type="date" value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} width="165px" bg="gray.800" color="white" borderColor="gray.600" _focusVisible={{ borderColor: "orange.400", boxShadow: "0 0 0 1px rgba(251,146,60,0.5)" }} />
+                                <Input type="date" value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} width="165px" bg="card" color="text" borderColor="border" _focusVisible={{ borderColor: "orange.400", boxShadow: "0 0 0 1px rgba(251,146,60,0.5)" }} />
                             </Box>
                             <Box>
                                 <Text fontSize="xs" color="muted" mb={1}>To</Text>
-                                <Input type="date" value={customEndDate} min={customStartDate || undefined} onChange={(e) => setCustomEndDate(e.target.value)} width="165px" bg="gray.800" color="white" borderColor="gray.600" _focusVisible={{ borderColor: "orange.400", boxShadow: "0 0 0 1px rgba(251,146,60,0.5)" }} />
+                                <Input type="date" value={customEndDate} min={customStartDate || undefined} onChange={(e) => setCustomEndDate(e.target.value)} width="165px" bg="card" color="text" borderColor="border" _focusVisible={{ borderColor: "orange.400", boxShadow: "0 0 0 1px rgba(251,146,60,0.5)" }} />
                             </Box>
                         </>}
 
@@ -344,10 +406,10 @@ export default function InvoiceHistory() {
                                 value={gstFilter}
                                 onChange={(e) => setGstFilter(normalizeGstFilter(e.target.value))}
                                 width="170px"
-                                bg="gray.800"
-                                color="white"
-                                borderColor="gray.600"
-                                sx={{ "& option": { backgroundColor: "#232427", color: "#FFFFFF" } }}
+                                bg="card"
+                                color="text"
+                                borderColor="border"
+                                sx={{ "& option": { backgroundColor: "var(--chakra-colors-card)", color: "var(--chakra-colors-text)" } }}
                                 _focusVisible={{ borderColor: "orange.400", boxShadow: "0 0 0 1px rgba(251,146,60,0.5)" }}
                             >
                                 <option value="all">GST + Non-GST</option>
@@ -362,13 +424,13 @@ export default function InvoiceHistory() {
                                 type="number"
                                 value={recordLimit}
                                 min={1}
-                                max={invoices.length || 1}
-                                placeholder={`from ${invoices.length || 0}`}
+                                max={filteredInvoices.length || 1}
+                                placeholder={`from ${filteredInvoices.length || 0}`}
                                 width="150px"
-                                bg="gray.800"
-                                color="white"
-                                borderColor="gray.600"
-                                _placeholder={{ color: "gray.400" }}
+                                bg="card"
+                                color="text"
+                                borderColor="border"
+                                _placeholder={{ color: "muted" }}
                                 _focusVisible={{ borderColor: "orange.400", boxShadow: "0 0 0 1px rgba(251,146,60,0.5)" }}
                                 onChange={(e) => {
                                     const nextValue = e.target.value;
@@ -383,7 +445,7 @@ export default function InvoiceHistory() {
                                         return;
                                     }
 
-                                    setRecordLimit(String(Math.min(numericValue, invoices.length || numericValue)));
+                                    setRecordLimit(String(Math.min(numericValue, filteredInvoices.length || numericValue)));
                                 }}
                             />
                         </Box>
@@ -419,15 +481,16 @@ export default function InvoiceHistory() {
                     <Text fontSize="sm" fontWeight={700} mb={2}>Export summary</Text>
                     <HStack spacing={4} wrap="wrap">
                         <Text fontSize="sm" color="muted">Records: {reportRows.length}</Text>
-                        <Text fontSize="sm" color="muted">Taxable Value: {formatMoney(reportSummary.taxableValue)}</Text>
-                        <Text fontSize="sm" color="muted">GST: {formatMoney(reportSummary.gst)}</Text>
-                        <Text fontSize="sm" color="muted">Total: {formatMoney(reportSummary.total)}</Text>
+                        <Text fontSize="sm" color="muted">Order amount: {formatMoney(reportSummary.total)}</Text>
+                        <Text fontSize="sm" color="muted">Tax free products: {formatMoney(reportSummary.taxFreeTotal)}</Text>
+                        <Text fontSize="sm" color="muted">5% GST products: {formatMoney(reportSummary.gst5Total)}</Text>
+                        <Text fontSize="sm" color="muted">18% GST products: {formatMoney(reportSummary.gst18Total)}</Text>
                     </HStack>
                 </Box>
 
                 {loading ? (
                     <Flex justify="center" py={10}><Spinner color="orange.400" /></Flex>
-                ) : invoices.length === 0 ? (
+                ) : filteredInvoices.length === 0 ? (
                     <Box border="1px dashed" borderColor="border" borderRadius="lg" p={8} textAlign="center">
                         <Text color="muted">No invoices found.</Text>
                     </Box>
@@ -444,7 +507,7 @@ export default function InvoiceHistory() {
                             </Tr>
                         </Thead>
                         <Tbody>
-                            {invoices.map((invoice) => {
+                            {filteredInvoices.map((invoice) => {
                                 return (
                                     <Tr key={invoice.id}>
                                         <Td>
@@ -507,7 +570,7 @@ export default function InvoiceHistory() {
                     ) : customerBalanceSummary.map((entry) => (
                         <Flex key={entry.customerName} justify="space-between">
                             <Text>{entry.customerName}</Text>
-                            <Text fontWeight={700} color={entry.balance > 0 ? "orange.300" : "green.300"}>
+                            <Text fontWeight={700} color={entry.balance > 0 ? "warning" : "positive"}>
                                 {entry.balance > 0 ? `Due ${formatMoney(entry.balance)}` : `Advance ${formatMoney(Math.abs(entry.balance))}`}
                             </Text>
                         </Flex>

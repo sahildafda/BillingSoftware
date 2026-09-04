@@ -10,7 +10,7 @@ export default function AppLayout({ children }) {
     const location = useLocation();
 
     return (
-        <Box minH="100vh" bg="background" color="white" p={{ base: 4, md: 6, lg: 0 }}>
+        <Box minH="100vh" bg="background" color="text" p={{ base: 4, md: 6, lg: 0 }}>
             <Flex direction={{ base: "column", lg: "row" }} gap={6} minH="100vh" align={{ lg: "stretch" }}>
                 <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((prev) => !prev)} activePath={location.pathname} />
 

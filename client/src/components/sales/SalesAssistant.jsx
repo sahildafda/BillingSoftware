@@ -89,7 +89,7 @@ export default function SalesAssistant() {
                             {asking && <HStack color="muted"><Spinner size="xs" /><Text fontSize="sm">Checking your data…</Text></HStack>}
                             {!messages.length && <VStack align="stretch" spacing={2}><Text fontSize="sm" color="muted">Try asking:</Text>{prompts.map((prompt) => <Button key={prompt} size="sm" justifyContent="flex-start" variant="outline" color="text" borderColor="border" _hover={{ bg: "whiteAlpha.100", borderColor: "orange.400" }} whiteSpace="normal" h="auto" py={2} onClick={() => setQuestion(prompt)}>{prompt}</Button>)}</VStack>}
                         </Stack>}
-                        {error && <Text mt={3} color="red.300" fontSize="sm">{error}</Text>}
+                        {error && <Text mt={3} color="danger" fontSize="sm">{error}</Text>}
                     </Box>
                     <Box as="form" onSubmit={askQuestion} p={3} borderTop="1px solid" borderColor="border"><HStack><Input ref={inputRef} value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ask about sales, products, or customers…" bg="card" borderColor="border" /><IconButton type="submit" aria-label="Ask sales assistant" icon={<LuSend />} colorScheme="orange" isLoading={asking} /></HStack></Box>
                 </Box>

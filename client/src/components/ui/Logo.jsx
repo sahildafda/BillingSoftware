@@ -19,7 +19,7 @@ export default function Logo() {
 
             <Box>
                 <Text
-                    color="white"
+                    color="text"
                     fontWeight="700"
                     fontSize="lg"
                 >

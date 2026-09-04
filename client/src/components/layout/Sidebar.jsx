@@ -11,6 +11,7 @@ import {
     Portal,
     Text,
     Tooltip,
+    useColorMode,
     VStack,
 } from "@chakra-ui/react";
 import { useRef, useState } from "react";
@@ -23,6 +24,8 @@ import {
     LuLogOut,
     LuPackage,
     LuReceipt,
+    LuMoon,
+    LuSun,
     LuTruck,
     LuUsers,
 } from "react-icons/lu";
@@ -32,7 +35,7 @@ import Logo from "../ui/Logo";
 import { ROUTES } from "../../constants/routes";
 import { exportDatabase, importDatabase, logoutUser } from "../../services/authService";
 
-export const NAV_ITEMS = [
+const NAV_ITEMS = [
     { name: "Dashboard", icon: LuLayoutDashboard, route: ROUTES.DASHBOARD },
     { name: "Billing", icon: LuReceipt, route: ROUTES.BILLING },
     { name: "Products", icon: LuPackage, route: ROUTES.PRODUCTS },
@@ -46,6 +49,7 @@ export default function Sidebar({ collapsed, onToggle, activePath }) {
     const user = JSON.parse(localStorage.getItem("authUser") || "null");
     const fileInputRef = useRef(null);
     const [isUploading, setIsUploading] = useState(false);
+    const { colorMode, toggleColorMode } = useColorMode();
 
     async function handleLogout() {
         const token = localStorage.getItem("authToken");
@@ -192,7 +196,7 @@ export default function Sidebar({ collapsed, onToggle, activePath }) {
                                     >
                                         <Box
                                             bg={isActive ? "primary" : "transparent"}
-                                            color={isActive ? "white" : "gray.300"}
+                                            color={isActive ? "white" : "muted"}
                                             p={3}
                                             borderRadius="12px"
                                             display="flex"
@@ -206,7 +210,7 @@ export default function Sidebar({ collapsed, onToggle, activePath }) {
                                         </Box>
 
                                         {!collapsed && (
-                                            <Text ml={3} color={isActive ? "white" : "gray.300"} fontWeight={600}>
+                                            <Text ml={3} color={isActive ? "primary" : "text"} fontWeight={600}>
                                                 {item.name}
                                             </Text>
                                         )}
@@ -247,10 +251,21 @@ export default function Sidebar({ collapsed, onToggle, activePath }) {
                                 boxShadow="lg"
                             >
                                 <MenuItem
+                                    icon={colorMode === "dark" ? <LuSun /> : <LuMoon />}
+                                    onClick={toggleColorMode}
+                                    bg="surface"
+                                    color="text"
+                                    whiteSpace="nowrap"
+                                    _hover={{ bg: "card" }}
+                                    _focus={{ bg: "card" }}
+                                >
+                                    {colorMode === "dark" ? "Use light mode" : "Use dark mode"}
+                                </MenuItem>
+                                <MenuItem
                                     icon={<LuDatabaseBackup />}
                                     onClick={handleExportDatabase}
                                     bg="surface"
-                                    color="white"
+                                    color="text"
                                     whiteSpace="nowrap"
                                     _hover={{ bg: "card" }}
                                     _focus={{ bg: "card" }}
@@ -261,7 +276,7 @@ export default function Sidebar({ collapsed, onToggle, activePath }) {
                                     icon={<LuUpload />}
                                     onClick={() => fileInputRef.current?.click()}
                                     bg="surface"
-                                    color="white"
+                                    color="text"
                                     whiteSpace="nowrap"
                                     _hover={{ bg: "card" }}
                                     _focus={{ bg: "card" }}
@@ -272,7 +287,7 @@ export default function Sidebar({ collapsed, onToggle, activePath }) {
                                     icon={<LuDownload />}
                                     onClick={handleExportDatabase}
                                     bg="surface"
-                                    color="white"
+                                    color="text"
                                     whiteSpace="nowrap"
                                     _hover={{ bg: "card" }}
                                     _focus={{ bg: "card" }}
@@ -283,7 +298,7 @@ export default function Sidebar({ collapsed, onToggle, activePath }) {
                                     icon={<LuLogOut />}
                                     onClick={handleLogout}
                                     bg="surface"
-                                    color="red.300"
+                                    color="danger"
                                     whiteSpace="nowrap"
                                     _hover={{ bg: "card" }}
                                     _focus={{ bg: "card" }}

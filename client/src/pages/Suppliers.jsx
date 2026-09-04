@@ -202,9 +202,9 @@ export default function Suppliers() {
                 </HStack>
 
                 <HStack spacing={3} flexWrap="wrap">
-                    <Input placeholder="Search by name, company, email, or phone" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} width="300px" bg="card" borderColor="border" color="white" />
-                    <Select value={sort} onChange={(e) => setSort(e.target.value)} width="180px" bg="card" borderColor="border" color="white" focusBorderColor="orange.300"
-                        sx={{ option: { bg: "#0f172a", color: "white", _hover: { bg: "#1e293b" } } }}>
+                    <Input placeholder="Search by name, company, email, or phone" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} width="300px" bg="card" borderColor="border" color="text" />
+                    <Select value={sort} onChange={(e) => setSort(e.target.value)} width="180px" bg="card" borderColor="border" color="text" focusBorderColor="orange.300"
+                        sx={{ option: { backgroundColor: "var(--chakra-colors-card)", color: "var(--chakra-colors-text)" } }}>
                         <option value="name_asc">Newest first</option>
                         <option value="name_desc">Oldest first</option>
                     </Select>

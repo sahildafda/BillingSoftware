@@ -88,15 +88,15 @@ export default function RegisterForm() {
                     Step {step} of 2
                 </Badge>
 
-                <Heading color="white" mt={4} size="lg">
+                <Heading color="text" mt={4} size="lg">
                     Create your account
                 </Heading>
 
-                <Text color="gray.400" mt={3} lineHeight="tall">
+                <Text color="muted" mt={3} lineHeight="tall">
                     Register your business and secure your billing workspace in a few simple steps.
                 </Text>
 
-                <HStack spacing={3} mt={6} color="gray.400">
+                <HStack spacing={3} mt={6} color="muted">
                     {steps.map((item, index) => (
                         <Box
                             key={item}
@@ -107,9 +107,9 @@ export default function RegisterForm() {
                             rounded="xl"
                             border="1px solid"
                             borderColor={index + 1 === step ? "primary" : "border"}
-                            bg={index + 1 === step ? "rgba(217, 119, 87, 0.12)" : "rgba(255,255,255,0.03)"}
+                            bg={index + 1 === step ? "rgba(217, 119, 87, 0.12)" : "card"}
                             fontSize="sm"
-                            color={index + 1 === step ? "primary" : "gray.400"}
+                            color={index + 1 === step ? "primary" : "muted"}
                             as={motion.div}
                             transition={{ duration: 0.3 }}
                         >
@@ -180,7 +180,7 @@ export default function RegisterForm() {
                 </AnimatePresence>
 
                 {message ? (
-                    <Text color="red.300" mt={4}>
+                    <Text color="danger" mt={4}>
                         {message}
                     </Text>
                 ) : null}
@@ -190,10 +190,11 @@ export default function RegisterForm() {
                         <AppButton
                             flex={1}
                             bg="transparent"
+                            color="text"
                             border="1px solid"
                             borderColor="border"
                             boxShadow="none"
-                            _hover={{ bg: "whiteAlpha.100", transform: "translateY(-1px)" }}
+                            _hover={{ bg: "card", transform: "translateY(-1px)" }}
                             onClick={() => setStep(1)}
                         >
                             Back
@@ -210,7 +211,7 @@ export default function RegisterForm() {
                     </AppButton>
                 </HStack>
 
-                <Text mt={6} color="gray.400" textAlign="center">
+                <Text mt={6} color="muted" textAlign="center">
                     Already have an account?{" "}
                     <Link color="primary" onClick={() => navigate(ROUTES.LOGIN)} _hover={{ color: "primaryHover" }}>
                         Sign in

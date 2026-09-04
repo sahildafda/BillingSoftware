@@ -4,7 +4,7 @@ export default function FormLabel({ children, required = false }) {
     return (
         <Text
             mb={2}
-            color="gray.300"
+            color="text"
             fontSize="sm"
             fontWeight="500"
         >

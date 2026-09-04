@@ -47,7 +47,7 @@ export default function OtpVerification() {
                 borderColor="border"
                 rounded="2xl"
                 p={{ base: 6, md: 8 }}
-                boxShadow="0 24px 80px rgba(0, 0, 0, 0.35)"
+                boxShadow="0 24px 80px rgba(45, 41, 38, 0.12)"
             >
                 <Badge
                     colorScheme="orange"
@@ -62,11 +62,11 @@ export default function OtpVerification() {
                     Verification
                 </Badge>
 
-                <Heading color="white" mt={4} size="lg">
+                <Heading color="text" mt={4} size="lg">
                     Verify your email
                 </Heading>
 
-                <Text color="gray.400" mt={3} lineHeight="tall">
+                <Text color="muted" mt={3} lineHeight="tall">
                     We’ve sent a one-time password to {email}. Enter it below to complete registration.
                 </Text>
 
@@ -80,18 +80,18 @@ export default function OtpVerification() {
                         />
                     </Box>
 
-                    {message ? <Text color="red.300">{message}</Text> : null}
+                    {message ? <Text color="danger">{message}</Text> : null}
 
                     <AppButton w="100%" onClick={handleVerify} isLoading={isSubmitting} isDisabled={!otp.trim()}>
                         Verify OTP
                     </AppButton>
 
-                    <Text color="gray.400" fontSize="sm">
+                    <Text color="muted" fontSize="sm">
                         Didn’t receive it? <Text as="span" color="primary">Resend code</Text>
                     </Text>
                 </VStack>
 
-                <Text mt={6} color="gray.400" textAlign="center">
+                <Text mt={6} color="muted" textAlign="center">
                     <Text as="span" color="primary" cursor="pointer" onClick={() => navigate(ROUTES.LOGIN)}>
                         Back to login
                     </Text>

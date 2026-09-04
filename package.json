@@ -22,10 +22,11 @@
     "wait-on": "^9.0.10"
   },
   "devDependencies": {
-    "electron": "^43.1.1",
+    "electron": "42.10.1",
     "electron-builder": "^26.15.3"
   },
   "build": {
+    "afterPack": "scripts/afterPack.js",
     "appId": "com.billingsoftware.app",
     "productName": "Billing Software",
     "artifactName": "Billing-Software-Setup-${version}.${ext}",

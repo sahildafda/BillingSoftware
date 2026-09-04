@@ -53,6 +53,15 @@ import {
 import { LuPlus, LuPencil, LuTrash2 } from "react-icons/lu";
 import * as productService from "../services/productService";
 import * as supplierService from "../services/supplierService";
+
+function formatMoney(value) {
+    return Number(value || 0).toLocaleString("en-IN", {
+        style: "currency",
+        currency: "INR",
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+    });
+}
 import AppLayout from "../components/layout/AppLayout";
 
 function ProductForm({ initial, onClose, onSaved, suppliers = [] }) {
@@ -162,11 +171,11 @@ function ProductForm({ initial, onClose, onSaved, suppliers = [] }) {
                         onChange={(e) => setForm({ ...form, supplierId: e.target.value || "" })}
                         bg="card"
                         borderColor="border"
-                        color="white"
+                        color="text"
                         focusBorderColor="orange.300"
                     >
                         {suppliers.map((supplier) => (
-                            <option key={supplier.id || supplier._id} value={supplier.id || supplier._id} style={{ background: "#0f172a", color: "white" }}>
+                            <option key={supplier.id || supplier._id} value={supplier.id || supplier._id}>
                                 {supplier.supplierName} {supplier.companyName ? `(${supplier.companyName})` : ""}
                             </option>
                         ))}
@@ -460,7 +469,7 @@ export default function Products() {
                 </HStack>
 
                 <HStack spacing={3} flexWrap="wrap">
-                    <Input placeholder="Search by name or SKU" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} width="280px" bg="card" borderColor="border" color="white" />
+                    <Input placeholder="Search by name or SKU" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} width="280px" bg="card" borderColor="border" color="text" />
                     <Select
                         placeholder="Brand"
                         value={brand}
@@ -468,10 +477,10 @@ export default function Products() {
                         width="180px"
                         bg="card"
                         borderColor="border"
-                        color="white"
-                        iconColor="white"
+                        color="text"
+                        iconColor="text"
                         focusBorderColor="orange.300"
-                        sx={{ option: { bg: "#0f172a", color: "white", _hover: { bg: "#1e293b" } } }}
+                        sx={{ option: { backgroundColor: "var(--chakra-colors-card)", color: "var(--chakra-colors-text)" } }}
                     >
                         {brands.map((b) => <option key={b} value={b}>{b}</option>)}
                     </Select>
@@ -481,10 +490,10 @@ export default function Products() {
                         width="160px"
                         bg="card"
                         borderColor="border"
-                        color="white"
-                        iconColor="white"
+                        color="text"
+                        iconColor="text"
                         focusBorderColor="orange.300"
-                        sx={{ option: { bg: "#0f172a", color: "white", _hover: { bg: "#1e293b" } } }}
+                        sx={{ option: { backgroundColor: "var(--chakra-colors-card)", color: "var(--chakra-colors-text)" } }}
                     >
                         <option value="name_asc">Name A–Z</option>
                         <option value="name_desc">Name Z–A</option>
@@ -504,7 +513,7 @@ export default function Products() {
                     <Table variant="simple" size="sm">
                         <Thead>
                             <Tr>
-                                <Th>Image</Th><Th>Name</Th><Th>SKU</Th><Th>Supplier</Th><Th>Price</Th><Th>Stock</Th><Th>Actions</Th>
+                                <Th>Image</Th><Th>Name</Th><Th>SKU</Th><Th>Supplier</Th><Th>Cost Price</Th><Th>Selling Price</Th><Th>GST %</Th><Th>Stock</Th><Th>Actions</Th>
                             </Tr>
                         </Thead>
                         <Tbody>
@@ -525,7 +534,9 @@ export default function Products() {
                                         <Td><Text fontWeight={600}>{p.productName}</Text></Td>
                                         <Td>{p.barcode}</Td>
                                         <Td>{supplier ? `${supplier.supplierName}${supplier.companyName ? ` (${supplier.companyName})` : ""}` : "—"}</Td>
-                                        <Td>{p.productPrice?.toFixed ? p.productPrice.toFixed(2) : p.productPrice}</Td>
+                                        <Td whiteSpace="nowrap">{formatMoney(p.productPrice)}</Td>
+                                        <Td whiteSpace="nowrap" fontWeight={600}>{formatMoney(p.sellingPrice)}</Td>
+                                        <Td>{Number(p.gstPercentage || 0)}%</Td>
                                         <Td>{p.stock}</Td>
                                         <Td>
                                             <HStack>
@@ -600,10 +611,10 @@ export default function Products() {
 
                                 <FormControl>
                                     <FormLabel>Print size</FormLabel>
-                                    <Select value={barcodePrintSize} onChange={(e) => setBarcodePrintSize(e.target.value)} bg="card" borderColor="border" color="white">
-                                        <option value="small" style={{ background: "#0f172a", color: "white" }}>Small</option>
-                                        <option value="medium" style={{ background: "#0f172a", color: "white" }}>Medium</option>
-                                        <option value="large" style={{ background: "#0f172a", color: "white" }}>Large</option>
+                                    <Select value={barcodePrintSize} onChange={(e) => setBarcodePrintSize(e.target.value)} bg="card" borderColor="border" color="text">
+                                        <option value="small">Small</option>
+                                        <option value="medium">Medium</option>
+                                        <option value="large">Large</option>
                                     </Select>
                                 </FormControl>
                             </VStack>

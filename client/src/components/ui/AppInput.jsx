@@ -7,18 +7,18 @@ export default function AppInput(props) {
     return (
         <MotionInput
             h="52px"
-            bg="rgba(255,255,255,0.03)"
+            bg="card"
             border="1px solid"
             borderColor="border"
-            color="white"
+            color="text"
             rounded="xl"
-            boxShadow="inset 0 1px 2px rgba(0,0,0,0.35)"
+            boxShadow="inset 0 1px 2px rgba(0,0,0,0.08)"
             _placeholder={{
-                color: "gray.500",
+                color: "muted",
             }}
             whileHover={{
                 borderColor: "gray.500",
-                bg: "rgba(255,255,255,0.05)",
+                bg: "surface",
             }}
             _focusVisible={{
                 borderColor: "primary",

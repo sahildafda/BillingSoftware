@@ -23,6 +23,8 @@ export default function PasswordInput(props) {
             <InputRightElement h="52px">
                 <IconButton
                     variant="ghost"
+                    color="muted"
+                    _hover={{ bg: "surface", color: "text" }}
                     size="sm"
                     onClick={() => setShow(!show)}
                     icon={show ? <LuEyeOff /> : <LuEye />}

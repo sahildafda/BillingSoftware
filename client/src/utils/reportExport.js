@@ -14,79 +14,28 @@ export function getReportRecords(invoices = [], gstFilter = "all", recordLimit =
 
     const orderRows = (invoices || []).flatMap((invoice) => {
         const invoiceItems = Array.isArray(invoice.items) && invoice.items.length > 0 ? invoice.items : [];
+        const hasGstProducts = invoiceItems.some((item) => Number(item.internalGstPercentage ?? item.gstPercent ?? item.gst ?? 0) > 0);
+        const isIncluded = normalizedFilter === "all" ||
+            (normalizedFilter === "gst" && hasGstProducts) ||
+            (normalizedFilter === "non-gst" && !hasGstProducts);
 
-        if (invoiceItems.length === 0) {
-            const gstAmount = Number(invoice.gstTotal || 0);
-            const isIncluded =
-                (normalizedFilter === "all") ||
-                (normalizedFilter === "gst" && gstAmount > 0) ||
-                (normalizedFilter === "non-gst" && gstAmount <= 0);
+        if (!isIncluded) return [];
 
-            if (!isIncluded) {
-                return [];
-            }
+        const productTotals = invoiceItems.reduce((totals, item) => {
+            const gstPercentage = Number(item.internalGstPercentage ?? item.gstPercent ?? item.gst ?? 0);
+            const productAmount = Number(item.lineTotal ?? (Number(item.quantity || 1) * Number(item.unitPrice ?? item.price ?? 0)));
+            if (gstPercentage === 0) totals.taxFreeTotal += productAmount;
+            if (gstPercentage === 5) totals.gst5Total += productAmount;
+            if (gstPercentage === 18) totals.gst18Total += productAmount;
+            return totals;
+        }, { taxFreeTotal: 0, gst5Total: 0, gst18Total: 0 });
 
-            return [{
-                orderNumber: invoice.invoiceNumber || `INV-${invoice.id || "N/A"}`,
-                orderDate: invoice.createdAt,
-                customerName: invoice.customerName || "Walk-in Customer",
-                contactNumber: invoice.contactNumber || "",
-                email: invoice.email || "",
-                productName: "Invoice Total",
-                sku: "",
-                internalProductName: "",
-                internalReference: "",
-                internalGstPercentage: "",
-                quantity: 1,
-                unitPrice: Number(invoice.total || 0),
-                gstPercentage: Number(invoice.gstTotal || 0) > 0 ? 18 : 0,
-                taxableValue: Number(invoice.subtotal || 0),
-                gstAmount: Number(invoice.gstTotal || 0),
-                totalAmount: Number(invoice.total || 0),
-                gstType: Number(invoice.gstTotal || 0) > 0 ? "GST" : "Non-GST",
-                status: invoice.status || "",
-            }];
-        }
-
-        return invoiceItems
-            .filter((item) => {
-                const gstPercentage = Number(item.gstPercent ?? item.gst ?? 0);
-                const includeRow =
-                    (normalizedFilter === "all") ||
-                    (normalizedFilter === "gst" && gstPercentage > 0) ||
-                    (normalizedFilter === "non-gst" && gstPercentage <= 0);
-
-                return includeRow;
-            })
-            .map((item) => {
-                const quantity = Number(item.quantity || 1);
-                const unitPrice = Number(item.unitPrice ?? item.price ?? 0);
-                const gstPercentage = Number(item.gstPercent ?? item.gst ?? 0);
-                const taxableValue = quantity * unitPrice;
-                const gstAmount = taxableValue * (gstPercentage / 100);
-                const totalAmount = taxableValue + gstAmount;
-
-                return {
-                    orderNumber: invoice.invoiceNumber || `INV-${invoice.id || "N/A"}`,
-                    orderDate: invoice.createdAt,
-                    customerName: invoice.customerName || "Walk-in Customer",
-                    contactNumber: invoice.contactNumber || "",
-                    email: invoice.email || "",
-                    productName: item.productName || "Product",
-                    sku: item.sku || item.barcode || "",
-                    internalProductName: item.internalProductName || "",
-                    internalReference: item.internalReference || "",
-                    internalGstPercentage: item.internalGstPercentage == null ? "" : Number(item.internalGstPercentage),
-                    quantity,
-                    unitPrice,
-                    gstPercentage,
-                    taxableValue,
-                    gstAmount,
-                    totalAmount,
-                    gstType: gstPercentage > 0 ? "GST" : "Non-GST",
-                    status: invoice.status || "",
-                };
-            });
+        return [{
+            orderNumber: invoice.invoiceNumber || `INV-${invoice.id || "N/A"}`,
+            orderDate: invoice.createdAt,
+            orderAmount: Number(invoice.total || 0),
+            ...productTotals,
+        }];
     });
 
     const safeRows = Number.isFinite(parsedLimit) && parsedLimit > 0 ? orderRows.slice(0, parsedLimit) : orderRows;
@@ -94,18 +43,13 @@ export function getReportRecords(invoices = [], gstFilter = "all", recordLimit =
 }
 
 export function getReportSummary(rows = []) {
-    const totals = rows.reduce(
-        (acc, row) => {
-            acc.subtotal += Number(row.taxableValue || 0);
-            acc.taxableValue += Number(row.taxableValue || 0);
-            acc.gst += Number(row.gstAmount || 0);
-            acc.total += Number(row.totalAmount || 0);
-            return acc;
-        },
-        { subtotal: 0, taxableValue: 0, gst: 0, total: 0 }
-    );
-
-    return totals;
+    return rows.reduce((acc, row) => {
+        acc.total += Number(row.orderAmount || 0);
+        acc.taxFreeTotal += Number(row.taxFreeTotal || 0);
+        acc.gst5Total += Number(row.gst5Total || 0);
+        acc.gst18Total += Number(row.gst18Total || 0);
+        return acc;
+    }, { total: 0, taxFreeTotal: 0, gst5Total: 0, gst18Total: 0 });
 }
 
 export function formatCurrency(value) {
@@ -121,46 +65,23 @@ export function downloadExcelFile(rows, fileName = "invoice-report.xlsx") {
     const header = [
         "Order No",
         "Date",
-        "Customer",
-        "Contact",
-        "Email",
-        "Product",
-        "SKU",
-        "GST %",
-        "Qty",
-        "Unit Price",
-        "Taxable Value",
-        "GST Amount",
-        "Total Amount",
-        "GST Type",
-        "Status",
+        "Order Amount",
+        "Tax Free Product Total",
+        "5% GST Product Total",
+        "18% GST Product Total",
     ];
 
     const csvRows = [header.join(",")];
 
     rows.forEach((row) => {
 
-        let gstPercentage = row.internalGstPercentage || row.gstPercentage || 0;
-        let gstAmount = row.taxableValue * (gstPercentage / 100);
-        let totalAmount = row.taxableValue + gstAmount;
-        let productName = row.internalProductName || row.productName;
-
         const values = [
             row.orderNumber || "",
             row.orderDate ? new Date(row.orderDate).toLocaleDateString("en-IN") : "",
-            row.customerName || "Walk-in Customer",
-            row.contactNumber || "",
-            row.email || "",
-            productName || "",
-            row.sku || "",
-            gstPercentage,
-            Number(row.quantity || 0),
-            Number(row.unitPrice || 0),
-            Number(row.taxableValue || 0),
-            Number(gstAmount || 0),
-            Number(totalAmount || 0),
-            row.gstType || "",
-            row.status || "",
+            Number(row.orderAmount || 0),
+            Number(row.taxFreeTotal || 0),
+            Number(row.gst5Total || 0),
+            Number(row.gst18Total || 0),
         ];
 
         csvRows.push(values.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","));
@@ -188,31 +109,40 @@ export function printProfessionalReport(rows, reportTitle = "GST Report") {
         .map((row) => `
         <tr>
           <td>${row.orderNumber || ""}</td>
-          <td>${row.customerName || "Walk-in Customer"}</td>
-          <td>${row.productName || ""}</td>
-          <td>${row.internalProductName || ""}</td>
-          <td>${row.internalReference || ""}</td>
-          <td>${row.internalGstPercentage === "" ? "" : `${row.internalGstPercentage ?? ""}%`}</td>
-          <td>${row.gstPercentage ?? 0}%</td>
-          <td>${formatCurrency(row.unitPrice)}</td>
-          <td>${formatCurrency(row.taxableValue)}</td>
-          <td>${formatCurrency(row.gstAmount)}</td>
-          <td>${formatCurrency(row.totalAmount)}</td>
-          <td>${row.gstType || ""}</td>
+          <td>${row.orderDate ? new Date(row.orderDate).toLocaleDateString("en-IN") : ""}</td>
+          <td>${formatCurrency(row.orderAmount)}</td>
+          <td>${formatCurrency(row.taxFreeTotal)}</td>
+          <td>${formatCurrency(row.gst5Total)}</td>
+          <td>${formatCurrency(row.gst18Total)}</td>
         </tr>
       `)
         .join("");
+
+    let printStarted = false;
+    const startPrint = () => {
+        if (printStarted || printWindow.closed) return;
+        printStarted = true;
+        printWindow.focus();
+        printWindow.print();
+    };
+
+    printWindow.addEventListener("load", startPrint, { once: true });
+    printWindow.addEventListener("afterprint", () => printWindow.close(), { once: true });
 
     printWindow.document.write(`
     <html>
       <head>
         <title>${reportTitle}</title>
         <style>
-          body { font-family: Arial, sans-serif; color: #111827; background: #f9fafb; margin: 32px; }
+          @page { size: landscape; margin: 10mm; }
+          html, body { margin: 0; padding: 0; }
+          body { font-family: Arial, sans-serif; color: #111827; background: white; }
+          thead { display: table-header-group; }
+          tr { break-inside: avoid; page-break-inside: avoid; }
           .report-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
           .report-title { font-size: 28px; font-weight: 700; }
           .meta { color: #4b5563; font-size: 12px; }
-          .summary { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 12px; margin: 16px 0 24px; }
+          .summary { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 12px; margin: 16px 0 24px; }
           .summary-box { background: white; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; }
           .summary-label { color: #6b7280; font-size: 12px; text-transform: uppercase; }
           .summary-value { font-size: 18px; font-weight: 700; margin-top: 6px; }
@@ -231,26 +161,21 @@ export function printProfessionalReport(rows, reportTitle = "GST Report") {
         </div>
 
         <div class="summary">
-          <div class="summary-box"><div class="summary-label">Taxable Value</div><div class="summary-value">${formatCurrency(summary.taxableValue)}</div></div>
-          <div class="summary-box"><div class="summary-label">GST</div><div class="summary-value">${formatCurrency(summary.gst)}</div></div>
-          <div class="summary-box"><div class="summary-label">Total</div><div class="summary-value">${formatCurrency(summary.total)}</div></div>
+          <div class="summary-box"><div class="summary-label">Order Amount</div><div class="summary-value">${formatCurrency(summary.total)}</div></div>
+          <div class="summary-box"><div class="summary-label">Tax Free Products</div><div class="summary-value">${formatCurrency(summary.taxFreeTotal)}</div></div>
+          <div class="summary-box"><div class="summary-label">5% GST Products</div><div class="summary-value">${formatCurrency(summary.gst5Total)}</div></div>
+          <div class="summary-box"><div class="summary-label">18% GST Products</div><div class="summary-value">${formatCurrency(summary.gst18Total)}</div></div>
         </div>
 
         <table>
           <thead>
             <tr>
               <th>Order</th>
-              <th>Customer</th>
-              <th>Product</th>
-              <th>Internal Product</th>
-              <th>Internal Reference</th>
-              <th>Internal GST %</th>
-              <th>GST %</th>
-              <th>Price</th>
-              <th>Taxable Value</th>
-              <th>GST Amount</th>
-              <th>Total</th>
-              <th>Type</th>
+              <th>Date</th>
+              <th>Order Amount</th>
+              <th>Tax Free Product Total</th>
+              <th>5% GST Product Total</th>
+              <th>18% GST Product Total</th>
             </tr>
           </thead>
           <tbody>
@@ -262,6 +187,7 @@ export function printProfessionalReport(rows, reportTitle = "GST Report") {
   `);
 
     printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
+
+    // Some embedded browsers do not dispatch load for document.write windows.
+    window.setTimeout(startPrint, 300);
 }

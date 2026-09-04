@@ -20,16 +20,14 @@ import {
     ModalFooter,
     ModalHeader,
     ModalOverlay,
-    NumberInput,
-    NumberInputField,
     Select,
-    SimpleGrid,
+    Grid,
+    GridItem,
     Spinner,
-    Stack,
     Text,
     VStack,
 } from "@chakra-ui/react";
-import { LuPlus, LuReceipt, LuSearch, LuScanLine, LuTrash2, LuUserPlus } from "react-icons/lu";
+import { LuPlus, LuScanLine, LuTrash2, LuUserPlus } from "react-icons/lu";
 
 import AppLayout from "../components/layout/AppLayout";
 import * as customerService from "../services/customerService";
@@ -41,8 +39,8 @@ function formatMoney(value) {
     return Number(value || 0).toLocaleString("en-IN", {
         style: "currency",
         currency: "INR",
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
     });
 }
 
@@ -50,7 +48,7 @@ export default function Billing() {
     const [customerQuery, setCustomerQuery] = useState("");
     const [customers, setCustomers] = useState([]);
     const [selectedCustomer, setSelectedCustomer] = useState(null);
-    const [customerLoading, setCustomerLoading] = useState(false);
+    const [, setCustomerLoading] = useState(false);
     const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
     const [customerForm, setCustomerForm] = useState({ customerName: "", contactNumber: "", email: "" });
     const [customerFormError, setCustomerFormError] = useState("");
@@ -61,7 +59,8 @@ export default function Billing() {
     const [productResults, setProductResults] = useState([]);
     const [productLoading, setProductLoading] = useState(false);
     const [cart, setCart] = useState([]);
-    const [payments, setPayments] = useState([{ id: Date.now(), method: "cash", amount: "0" }]);
+    const [payments, setPayments] = useState([{ id: Date.now(), method: "cash", amount: "" }]);
+    const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [statusMessage, setStatusMessage] = useState("");
     const [isFinalizing, setIsFinalizing] = useState(false);
 
@@ -103,7 +102,6 @@ export default function Billing() {
                         ? payload.items
                         : [];
 
-            debugger;
             setProductResults(rows);
         } catch (err) {
             console.error(err);
@@ -260,7 +258,7 @@ export default function Billing() {
     }
 
     function addPaymentRow() {
-        setPayments((prev) => [...prev, { id: Date.now() + Math.random(), method: "cash", amount: "0" }]);
+        setPayments((prev) => [...prev, { id: Date.now() + Math.random(), method: "cash", amount: "" }]);
     }
 
     function removePaymentRow(id) {
@@ -299,16 +297,16 @@ export default function Billing() {
         }
     }
 
-    const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    const gstTotal = cart.reduce((sum, item) => {
-        const gstValue = item.price * item.quantity * (Number(item.gst || 0) / 100);
-        return sum + gstValue;
-    }, 0);
+    const grossTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const gstTotal = 0;
+    const subtotal = grossTotal;
     const discountTotal = cart.reduce((sum, item) => {
         const discountValue = item.price * item.quantity * (Number(item.discount || 0) / 100);
         return sum + discountValue;
     }, 0);
-    const grandTotal = subtotal + gstTotal - discountTotal;
+    const exactTotal = grossTotal - discountTotal;
+    const grandTotal = Math.round(exactTotal);
+    const roundingAdjustment = grandTotal - exactTotal;
     const creditAvailable = Number(selectedCustomer?.credit || 0);
     const creditUsed = Math.min(creditAvailable, grandTotal);
     const paymentTotal = payments.reduce((sum, row) => sum + Number(row.amount || 0), 0);
@@ -375,11 +373,12 @@ export default function Billing() {
                 {
                     id: Date.now(),
                     method: "cash",
-                    amount: "0"
+                    amount: ""
                 }
             ]);
             setCustomerQuery("");
             setSelectedCustomer(null);
+            setIsPaymentModalOpen(false);
 
         } catch (err) {
             const message =
@@ -397,11 +396,11 @@ export default function Billing() {
 
     return (
         <AppLayout>
-            <SimpleGrid columns={{ base: 1, xl: 3 }} spacing={6}>
-                <Box bg="surface" border="1px solid" borderColor="border" borderRadius="xl" p={5} minH="600px">
+            <Grid templateColumns={{ base: "1fr", xl: "minmax(320px, 0.85fr) minmax(480px, 1.5fr)" }} gap={5} alignItems="start">
+                <GridItem bg="surface" border="1px solid" borderColor="border" borderRadius="xl" p={5} display="flex" flexDirection="column">
                     <HStack justify="space-between" mb={4}>
                         <Text fontSize="2xl" fontWeight={700}>Billing</Text>
-                        <Button leftIcon={<LuReceipt />} colorScheme="orange" size="sm">New Bill</Button>
+                        <Text color="muted" fontSize="sm">Select customer and products</Text>
                     </HStack>
 
                     <VStack spacing={4} align="stretch">
@@ -453,7 +452,7 @@ export default function Billing() {
                                 <Box mt={3} bg="card" border="1px solid" borderColor="border" borderRadius="md" p={3}>
                                     <Text fontWeight={600}>{selectedCustomer.customerName}</Text>
                                     <Text fontSize="sm" color="muted">{selectedCustomer.contactNumber || selectedCustomer.email || "Walk-in customer"}</Text>
-                                    <Text fontSize="sm" color="green.300">Available credit: {formatMoney(selectedCustomer.credit)}</Text>
+                                    <Text fontSize="sm" color="positive">Available credit: {formatMoney(selectedCustomer.credit)}</Text>
                                 </Box>
                             )}
                         </Box>
@@ -519,92 +518,105 @@ export default function Billing() {
                             )}
                         </Box>
                     </VStack>
-                </Box>
+                </GridItem>
 
-                <Box bg="surface" border="1px solid" borderColor="border" borderRadius="xl" p={5} minH="600px">
+                <GridItem bg="surface" border="1px solid" borderColor="border" borderRadius="xl" p={5} display="flex" flexDirection="column">
                     <HStack justify="space-between" mb={4}>
                         <Text fontSize="xl" fontWeight={700}>Cart</Text>
                         <Text color="muted">{cart.length} items</Text>
                     </HStack>
 
-                    <VStack spacing={3} align="stretch" maxH="500px" overflowY="auto" pr={1}>
+                    <VStack spacing={2} align="stretch" maxH="300px" overflowY="auto" pr={1}>
                         {cart.length === 0 ? (
                             <Box bg="card" border="1px dashed" borderColor="border" borderRadius="md" p={6} textAlign="center">
                                 <Text color="muted">No items in cart yet.</Text>
                             </Box>
                         ) : (
                             cart.map((item) => (
-                                <Box key={item.id} bg="card" border="1px solid" borderColor="border" borderRadius="md" p={3}>
-                                    <HStack align="start" justify="space-between">
-                                        <Box flex={1}>
+                                <Box key={item.id} bg="card" border="1px solid" borderColor="border" borderRadius="md" px={3} py={2}>
+                                    <HStack spacing={3} justify="space-between">
+                                        <Box flex={1} minW={0}>
                                             <Text fontWeight={700}>{item.name}</Text>
-                                            <Text fontSize="sm" color="muted">SKU: {item.sku}</Text>
+                                            <Text fontSize="xs" color="muted" noOfLines={1}>SKU: {item.sku}</Text>
                                         </Box>
-                                        <Button variant="ghost" colorScheme="red" size="sm" onClick={() => updateCartQuantity(item.id, 0)}>
-                                            <LuTrash2 size={14} />
-                                        </Button>
-                                    </HStack>
-
-                                    <HStack mt={3} justify="space-between">
-                                        <HStack spacing={2}>
+                                        <HStack spacing={1}>
                                             <Button
-                                                size="sm"
-                                                minW="36px"
-                                                h="36px"
+                                                size="xs"
+                                                minW="28px"
+                                                h="28px"
                                                 border="1px solid"
                                                 borderColor="orange.500"
                                                 bg="rgba(249,115,22,0.12)"
-                                                color="orange.200"
+                                                color="primary"
                                                 _hover={{ bg: "rgba(249,115,22,0.22)" }}
                                                 onClick={() => updateCartQuantity(item.id, item.quantity - 1)}
                                             >
                                                 -
                                             </Button>
-                                            <Text minW="22px" textAlign="center" fontWeight={700}>{item.quantity}</Text>
+                                            <Text minW="24px" textAlign="center" fontWeight={700} fontSize="sm">{item.quantity}</Text>
                                             <Button
-                                                size="sm"
-                                                minW="36px"
-                                                h="36px"
+                                                size="xs"
+                                                minW="28px"
+                                                h="28px"
                                                 border="1px solid"
                                                 borderColor="orange.500"
                                                 bg="rgba(249,115,22,0.12)"
-                                                color="orange.200"
+                                                color="primary"
                                                 _hover={{ bg: "rgba(249,115,22,0.22)" }}
                                                 onClick={() => updateCartQuantity(item.id, item.quantity + 1)}
                                             >
                                                 +
                                             </Button>
                                         </HStack>
-                                        <Text fontWeight={700}>{formatMoney(item.price * item.quantity)}</Text>
+                                        <Text fontWeight={700} minW="72px" textAlign="right">{formatMoney(item.price * item.quantity)}</Text>
+                                        <Button variant="ghost" colorScheme="red" size="xs" minW="28px" h="28px" onClick={() => updateCartQuantity(item.id, 0)} aria-label={`Remove ${item.name}`}>
+                                            <LuTrash2 size={13} />
+                                        </Button>
                                     </HStack>
                                 </Box>
                             ))
                         )}
                     </VStack>
-                </Box>
 
-                <Box bg="surface" border="1px solid" borderColor="border" borderRadius="xl" p={5} minH="600px">
-                    <Text fontSize="xl" fontWeight={700} mb={4}>Payment</Text>
+                    <Box mt={5} pt={5} borderTop="1px solid" borderColor="border">
+                        <VStack spacing={2} align="stretch" mb={4}>
+                            <Flex justify="space-between"><Text color="muted">Amount</Text><Text>{formatMoney(subtotal)}</Text></Flex>
+                            <Flex justify="space-between"><Text color="muted">Discount</Text><Text>- {formatMoney(discountTotal)}</Text></Flex>
+                            {Math.abs(roundingAdjustment) >= 0.005 && <Flex justify="space-between"><Text color="muted">Rounding</Text><Text>{roundingAdjustment >= 0 ? "+ " : "- "}{formatMoney(Math.abs(roundingAdjustment))}</Text></Flex>}
+                            {selectedCustomer && <Flex justify="space-between"><Text color="muted">Customer credit</Text><Text color="positive">- {formatMoney(creditUsed)}</Text></Flex>}
+                            <Flex justify="space-between" align="center" pt={2} fontWeight={800} fontSize="xl"><Text>Total</Text><Text color="primary">{formatMoney(grandTotal)}</Text></Flex>
+                        </VStack>
+                        {statusMessage && <Box mb={4} bg="rgba(249,115,22,0.12)" border="1px solid" borderColor="orange.500" color="warning" borderRadius="md" p={3}><Text fontSize="sm">{statusMessage}</Text></Box>}
+                        <Button colorScheme="orange" size="lg" w="100%" isDisabled={cart.length === 0} onClick={() => setIsPaymentModalOpen(true)}>Finalize billing</Button>
+                    </Box>
+                </GridItem>
 
-                    <VStack spacing={3} align="stretch">
+                <Modal isOpen={isPaymentModalOpen} onClose={() => !isFinalizing && setIsPaymentModalOpen(false)} isCentered size="xl">
+                    <ModalOverlay />
+                    <ModalContent bg="surface" color="text">
+                        <ModalHeader>Complete payment</ModalHeader>
+                        <ModalCloseButton isDisabled={isFinalizing} />
+                        <ModalBody pb={6}>
+                            <Text color="muted" mb={4}>Add payment details and confirm the invoice.</Text>
+                            <VStack spacing={3} align="stretch">
                         {payments.map((payment) => (
                             <Box key={payment.id} bg="card" border="1px solid" borderColor="border" borderRadius="md" p={3}>
                                 <HStack spacing={2} align="center">
                                     <Select
                                         value={payment.method}
                                         onChange={(e) => updatePaymentRow(payment.id, "method", e.target.value)}
-                                        bg="rgba(17,24,39,0.72)"
+                                        bg="card"
                                         border="1px solid"
                                         borderColor="rgba(249,115,22,0.9)"
-                                        color="white"
+                                        color="text"
                                         borderRadius="md"
                                         height="48px"
                                         minW="120px"
                                         _focus={{ borderColor: "orange.400", boxShadow: "0 0 0 1px rgba(249,115,22,0.5)" }}
                                         sx={{
                                             "option": {
-                                                backgroundColor: "#1f2937",
-                                                color: "white",
+                                                backgroundColor: "var(--chakra-colors-card)",
+                                                color: "var(--chakra-colors-text)",
                                             },
                                         }}
                                     >
@@ -619,11 +631,12 @@ export default function Billing() {
                                         min="0"
                                         value={payment.amount}
                                         onChange={(e) => updatePaymentRow(payment.id, "amount", e.target.value)}
-                                        placeholder="Amount"
-                                        bg="rgba(17,24,39,0.72)"
+                                        onFocus={(e) => e.target.select()}
+                                        placeholder={balanceDue > 0 ? `Amount (₹${Math.ceil(balanceDue)})` : "Amount"}
+                                        bg="card"
                                         border="1px solid"
                                         borderColor="rgba(249,115,22,0.9)"
-                                        color="white"
+                                        color="text"
                                         borderRadius="md"
                                         height="48px"
                                         _focus={{ borderColor: "orange.400", boxShadow: "0 0 0 1px rgba(249,115,22,0.5)" }}
@@ -632,7 +645,7 @@ export default function Billing() {
                                         size="sm"
                                         variant="solid"
                                         bg="rgba(239,68,68,0.12)"
-                                        color="red.200"
+                                        color="danger"
                                         border="1px solid"
                                         borderColor="red.400"
                                         _hover={{ bg: "rgba(239,68,68,0.2)" }}
@@ -653,20 +666,20 @@ export default function Billing() {
                         <Divider />
 
                         <VStack spacing={2} align="stretch">
-                            <Flex justify="space-between"><Text color="muted">Subtotal</Text><Text>{formatMoney(subtotal)}</Text></Flex>
-                            <Flex justify="space-between"><Text color="muted">GST</Text><Text>{formatMoney(gstTotal)}</Text></Flex>
+                            <Flex justify="space-between"><Text color="muted">Amount</Text><Text>{formatMoney(subtotal)}</Text></Flex>
                             <Flex justify="space-between"><Text color="muted">Discount</Text><Text>- {formatMoney(discountTotal)}</Text></Flex>
+                            {Math.abs(roundingAdjustment) >= 0.005 && <Flex justify="space-between"><Text color="muted">Rounding</Text><Text>{roundingAdjustment >= 0 ? "+ " : "- "}{formatMoney(Math.abs(roundingAdjustment))}</Text></Flex>}
                             <Flex justify="space-between" fontWeight={700}><Text>Total</Text><Text>{formatMoney(grandTotal)}</Text></Flex>
-                            {selectedCustomer && <Flex justify="space-between"><Text color="muted">Customer credit applied</Text><Text color="green.300">- {formatMoney(creditUsed)}</Text></Flex>}
+                            {selectedCustomer && <Flex justify="space-between"><Text color="muted">Customer credit applied</Text><Text color="positive">- {formatMoney(creditUsed)}</Text></Flex>}
                             <Flex justify="space-between"><Text color="muted">Paid</Text><Text>{formatMoney(paymentTotal)}</Text></Flex>
-                            <Flex justify="space-between" fontWeight={700} color={balanceDue <= 0 ? "green.300" : "orange.300"}>
+                            <Flex justify="space-between" fontWeight={700} color={balanceDue <= 0 ? "positive" : "warning"}>
                                 <Text>Balance</Text>
                                 <Text>{formatMoney(balanceDue)}</Text>
                             </Flex>
                         </VStack>
 
                         {statusMessage && (
-                            <Box bg="rgba(249,115,22,0.12)" border="1px solid" borderColor="orange.500" color="orange.200" borderRadius="md" p={3}>
+                            <Box bg="rgba(249,115,22,0.12)" border="1px solid" borderColor="orange.500" color="warning" borderRadius="md" p={3}>
                                 <Text fontSize="sm">{statusMessage}</Text>
                             </Box>
                         )}
@@ -679,15 +692,17 @@ export default function Billing() {
                             loadingText="Finalizing..."
                             onClick={finalizeInvoice}
                         >
-                            Finalize billing
+                            Confirm &amp; save invoice
                         </Button>
-                    </VStack>
-                </Box>
-            </SimpleGrid>
+                            </VStack>
+                        </ModalBody>
+                    </ModalContent>
+                </Modal>
+            </Grid>
 
             <Modal isOpen={isCustomerModalOpen} onClose={() => setIsCustomerModalOpen(false)} isCentered>
                 <ModalOverlay />
-                <ModalContent bg="surface" color="white">
+                <ModalContent bg="surface" color="text">
                     <ModalHeader>Add new customer</ModalHeader>
                     <ModalCloseButton />
                     <ModalBody>
@@ -739,12 +754,20 @@ export default function Billing() {
                                 />
                             </FormControl>
                             {customerFormError && (
-                                <Text color="red.300" fontSize="sm">{customerFormError}</Text>
+                                <Text color="danger" fontSize="sm">{customerFormError}</Text>
                             )}
                         </VStack>
                     </ModalBody>
-                    <ModalFooter>
-                        <Button variant="ghost" onClick={() => setIsCustomerModalOpen(false)}>Cancel</Button>
+                    <ModalFooter gap={3}>
+                        <Button
+                            variant="outline"
+                            color="text"
+                            borderColor="border"
+                            _hover={{ bg: "card" }}
+                            onClick={() => setIsCustomerModalOpen(false)}
+                        >
+                            Cancel
+                        </Button>
                         <Button colorScheme="orange" onClick={handleAddCustomer}>Save customer</Button>
                     </ModalFooter>
                 </ModalContent>

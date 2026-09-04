@@ -66,7 +66,7 @@ export default function AuthLayout({
 
                     <Heading
                         mt={10}
-                        color="white"
+                        color="text"
                         size="xl"
                     >
                         {title}

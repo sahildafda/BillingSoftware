@@ -463,8 +463,6 @@ async function sendInvoiceWhatsApp(invoice, customer, user) {
         ""
     );
 
-    console.log(accountSid + "," + authToken + "," + from + "," + to);
-
     if (!accountSid || !authToken || !from || !to) {
         console.log(
             "[WhatsApp] Twilio environment variables are missing or the customer contact is incomplete."
@@ -520,6 +518,75 @@ async function sendInvoiceWhatsApp(invoice, customer, user) {
             error.message
         );
 
+        return {
+            success: false,
+            error: error.message,
+            reason: "Twilio message delivery failed",
+        };
+    }
+}
+
+async function sendCreditGenerationWhatsApp(invoiceReturn, invoice, customer, user) {
+    const enabled =
+        String(process.env.TWILIO_WHATSAPP_ENABLE || "false").toLowerCase() === "true";
+
+    if (!enabled) {
+        return {
+            success: false,
+            skipped: true,
+            reason: "TWILIO_WHATSAPP_ENABLE is not enabled",
+        };
+    }
+
+    const accountSid = process.env.TWILIO_ACCOUNT_SID || "";
+    const authToken = process.env.TWILIO_AUTH_TOKEN || "";
+    const from = process.env.TWILIO_WHATSAPP_FROM || "";
+    const contentSid = process.env.TWILIO_WHATSAPP_CREDIT_CONTENT_SID || "";
+    const to = normalizeWhatsAppNumber(customer?.contactNumber || "");
+
+    if (!accountSid || !authToken || !from || !to) {
+        console.log(
+            "[WhatsApp] Credit notification skipped because Twilio configuration or the customer contact is missing."
+        );
+        return {
+            success: false,
+            skipped: true,
+            reason: "Missing Twilio or WhatsApp contact configuration",
+        };
+    }
+
+    const customerName = String(customer?.customerName || "Customer").trim() || "Customer";
+    const businessName = String(user?.companyName || "Billing Software").trim() || "Billing Software";
+    const invoiceNumber = String(invoice?.invoiceNumber || "N/A").trim() || "N/A";
+    const creditAmount = formatCurrency(invoiceReturn?.creditAmount || 0);
+    const availableCredit = formatCurrency(customer?.credit || 0);
+    const message = {
+        from,
+        to,
+    };
+
+    if (contentSid) {
+        message.contentSid = contentSid;
+        message.contentVariables = JSON.stringify({
+            1: customerName,
+            2: businessName,
+            3: creditAmount,
+            4: invoiceNumber,
+            5: availableCredit,
+        });
+    } else {
+        message.body =
+            `Hello ${customerName}, ${businessName} has added INR ${creditAmount} ` +
+            `to your credit for return against invoice ${invoiceNumber}. ` +
+            `Your available credit is INR ${availableCredit}.`;
+    }
+
+    try {
+        const result = await twilio(accountSid, authToken).messages.create(message);
+        console.log("[WhatsApp] Credit notification sent successfully:", result.sid);
+        return { success: true, sid: result.sid, to };
+    } catch (error) {
+        console.error("[WhatsApp] Credit notification delivery failed:", error.message);
         return {
             success: false,
             error: error.message,
@@ -2246,6 +2313,37 @@ app.get("/api/dashboard", authenticateToken, (req, res) => {
         SELECT id, invoiceNumber, customerName, total, status, createdAt
         FROM invoices WHERE userId = ? AND ${periodClause} ORDER BY createdAt DESC LIMIT 5
     `).all(req.user.id);
+    const trendBucket = period === "month"
+        ? "strftime('%d', datetime(createdAt, '+5 hours', '+30 minutes'))"
+        : "strftime('%Y-%m', datetime(createdAt, '+5 hours', '+30 minutes'))";
+    const salesTrend = db.prepare(`
+        SELECT ${trendBucket} AS bucket, COUNT(*) AS orders, COALESCE(SUM(total), 0) AS revenue
+        FROM invoices
+        WHERE userId = ? AND ${periodClause}
+        GROUP BY bucket ORDER BY bucket
+    `).all(req.user.id).map((row) => ({
+        label: period === "month" ? String(Number(row.bucket)) : row.bucket,
+        orders: Number(row.orders || 0),
+        revenue: Number(row.revenue || 0),
+    }));
+    const paymentBreakdown = db.prepare(`
+        SELECT LOWER(ip.method) AS method, COALESCE(SUM(ip.amount), 0) AS amount
+        FROM invoice_payments ip
+        INNER JOIN invoices i ON i.id = ip.invoiceId AND i.userId = ip.userId
+        WHERE ip.userId = ? AND ${periodClause.replaceAll("createdAt", "i.createdAt")}
+        GROUP BY LOWER(ip.method) ORDER BY amount DESC
+    `).all(req.user.id).map((row) => ({ method: row.method, amount: Number(row.amount || 0) }));
+    const topProducts = db.prepare(`
+        SELECT ii.productName, COALESCE(SUM(ii.quantity), 0) AS units, COALESCE(SUM(ii.lineTotal), 0) AS revenue
+        FROM invoice_items ii
+        INNER JOIN invoices i ON i.id = ii.invoiceId AND i.userId = ii.userId
+        WHERE ii.userId = ? AND ${periodClause.replaceAll("createdAt", "i.createdAt")}
+        GROUP BY ii.productName ORDER BY units DESC, revenue DESC LIMIT 6
+    `).all(req.user.id).map((row) => ({
+        productName: row.productName,
+        units: Number(row.units || 0),
+        revenue: Number(row.revenue || 0),
+    }));
 
     return res.json({
         message: "Dashboard fetched successfully",
@@ -2260,6 +2358,7 @@ app.get("/api/dashboard", authenticateToken, (req, res) => {
             todayOrders: Number(todayTotals.orders || 0), newCustomers: Number(customerTotals.newCustomers || 0),
         },
         recentInvoices,
+        charts: { salesTrend, paymentBreakdown, topProducts },
     });
 });
 
@@ -3025,11 +3124,36 @@ app.post("/api/billing/invoices/:id/returns", authenticateToken, (req, res) => {
     try {
         const returnId = transaction();
         const customer = db.prepare("SELECT * FROM customers WHERE id = ? AND userId = ?").get(invoice.customerId, req.user.id);
-        return res.status(201).json({
+        const invoiceReturn = db.prepare("SELECT * FROM invoice_returns WHERE id = ?").get(returnId);
+
+        res.status(201).json({
             message: `Return processed. ${formatCurrency(creditAmount)} added to customer credit.`,
-            return: db.prepare("SELECT * FROM invoice_returns WHERE id = ?").get(returnId),
+            return: invoiceReturn,
             customer: formatCustomer(customer),
+            notifications: { queued: true },
         });
+
+        setImmediate(async () => {
+            try {
+                const result = await sendCreditGenerationWhatsApp(
+                    invoiceReturn,
+                    invoice,
+                    customer,
+                    req.user
+                );
+                console.log(
+                    `[Credit Notification] Completed for return ${returnId}:`,
+                    result
+                );
+            } catch (error) {
+                console.error(
+                    `[Credit Notification] Failed for return ${returnId}:`,
+                    error
+                );
+            }
+        });
+
+        return;
     } catch (error) {
         console.error("Return processing failed:", error);
         return res.status(400).json({ message: error.message || "Unable to process return" });
@@ -3093,10 +3217,13 @@ app.post("/api/billing/invoices", authenticateToken, async (req, res) => {
             }
         }
 
-        const itemSubtotal = unitPrice * qty;
-        const itemGst = itemSubtotal * (gstPercent / 100);
-        const itemDiscount = itemSubtotal * (discountPercent / 100);
-        const lineTotal = itemSubtotal + itemGst - itemDiscount;
+        // Product selling prices are final amounts. GST is not calculated again
+        // during billing and is not added to the invoice total.
+        const inclusiveAmount = unitPrice * qty;
+        const itemGst = 0;
+        const itemSubtotal = inclusiveAmount;
+        const itemDiscount = inclusiveAmount * (discountPercent / 100);
+        const lineTotal = inclusiveAmount - itemDiscount;
 
         subtotal += itemSubtotal;
         gstTotal += itemGst;
@@ -3117,7 +3244,8 @@ app.post("/api/billing/invoices", authenticateToken, async (req, res) => {
         });
     }
 
-    const total = subtotal + gstTotal - discountTotal;
+    // Bills are settled in whole rupees using standard half-up rounding.
+    const total = Math.round(subtotal + gstTotal - discountTotal);
     const paymentTotal = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
     const creditUsed = Math.min(Number(customerRecord?.credit || 0), total);
 

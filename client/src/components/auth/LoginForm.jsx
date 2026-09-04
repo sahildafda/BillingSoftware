@@ -86,7 +86,7 @@ export default function LoginForm() {
                 borderColor="border"
                 rounded="2xl"
                 p={{ base: 6, md: 8 }}
-                boxShadow="0 24px 80px rgba(0, 0, 0, 0.35)"
+                boxShadow="0 24px 80px rgba(45, 41, 38, 0.12)"
             >
                 <Badge
                     colorScheme="orange"
@@ -101,11 +101,11 @@ export default function LoginForm() {
                     Secure access
                 </Badge>
 
-                <Heading color="white" mt={4} size="lg">
+                <Heading color="text" mt={4} size="lg">
                     Welcome back
                 </Heading>
 
-                <Text color="gray.400" mt={3} lineHeight="tall">
+                <Text color="muted" mt={3} lineHeight="tall">
                     Sign in to keep your billing and inventory workflow moving smoothly.
                 </Text>
 
@@ -135,7 +135,7 @@ export default function LoginForm() {
                         />
                     </Box>
 
-                    <HStack justify="space-between" w="100%" mt={1} color="gray.400">
+                    <HStack justify="space-between" w="100%" mt={1} color="muted">
                         
                         <Link color="primary" fontSize="sm" _hover={{ color: "primaryHover" }} onClick={handleForgotPassword}>
                             {isResetting ? "Resetting..." : "Forgot password?"}
@@ -143,7 +143,7 @@ export default function LoginForm() {
                     </HStack>
 
                     {message ? (
-                        <Text color="red.300" w="100%">
+                        <Text color="danger" w="100%">
                             {message}
                         </Text>
                     ) : null}
@@ -157,11 +157,12 @@ export default function LoginForm() {
                     <AppButton
                         w="100%"
                         bg="transparent"
+                        color="text"
                         border="1px solid"
                         borderColor="border"
                         boxShadow="none"
                         _hover={{
-                            bg: "whiteAlpha.100",
+                            bg: "card",
                             transform: "translateY(-1px)",
                         }}
                         onClick={() => navigate(ROUTES.REGISTER)}
