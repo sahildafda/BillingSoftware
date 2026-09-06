@@ -269,6 +269,8 @@ ensureColumn("customers", "firmName", "TEXT NOT NULL DEFAULT ''");
 ensureColumn("customers", "gstNo", "TEXT NOT NULL DEFAULT ''");
 ensureColumn("invoices", "firmName", "TEXT NOT NULL DEFAULT ''");
 ensureColumn("invoices", "gstNo", "TEXT NOT NULL DEFAULT ''");
+ensureColumn("invoices", "cashReceived", "REAL NOT NULL DEFAULT 0");
+ensureColumn("invoices", "changeGiven", "REAL NOT NULL DEFAULT 0");
 
 db.exec(`
     CREATE TABLE IF NOT EXISTS suppliers (
@@ -569,10 +571,8 @@ async function sendCreditGenerationWhatsApp(invoiceReturn, invoice, customer, us
         message.contentSid = contentSid;
         message.contentVariables = JSON.stringify({
             1: customerName,
-            2: businessName,
-            3: creditAmount,
-            4: invoiceNumber,
-            5: availableCredit,
+            2: creditAmount,
+            3: businessName,
         });
     } else {
         message.body =
@@ -712,7 +712,7 @@ function generateInvoicePdf(invoice, customer, user) {
             .text(`Invoice No: ${invoice.invoiceNumber}`);
 
         doc.text(
-            `Date: ${new Date(invoice.createdAt).toLocaleString("en-IN")}`
+            `Date: ${parseDatabaseDate(invoice.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: true })} IST`
         );
 
         doc.moveDown();
@@ -845,6 +845,12 @@ function generateInvoicePdf(invoice, customer, user) {
                         `${String(payment.method || "Payment").toUpperCase()}: ${formatCurrency(payment.amount)}`
                     );
             });
+        }
+
+        if (Number(invoice.cashReceived) > 0) {
+            doc.fontSize(9).font("Helvetica")
+                .text(`Cash received: ${formatCurrency(invoice.cashReceived)}`)
+                .text(`Change given: ${formatCurrency(invoice.changeGiven)}`);
         }
 
         doc.moveDown(2);
@@ -1752,13 +1758,20 @@ function getYesterdayDateString() {
     return shiftDateString(getTodayDateString(), -1);
 }
 
+function parseDatabaseDate(value) {
+    const text = String(value || "").trim();
+    return new Date(/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(text)
+        ? `${text.replace(" ", "T")}Z`
+        : text);
+}
+
 function getDateOnlyIST(isoString) {
     return new Intl.DateTimeFormat("en-CA", {
         timeZone: "Asia/Kolkata",
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
-    }).format(new Date(isoString));
+    }).format(parseDatabaseDate(isoString));
 }
 
 function hasSummaryBeenSent(userId, dateStr) {
@@ -3246,8 +3259,24 @@ app.post("/api/billing/invoices", authenticateToken, async (req, res) => {
 
     // Bills are settled in whole rupees using standard half-up rounding.
     const total = Math.round(subtotal + gstTotal - discountTotal);
-    const paymentTotal = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    const normalizedPayments = payments.map((payment) => ({
+        method: String(payment?.method || "cash").trim().toLowerCase(),
+        amount: Number(payment?.amount ?? 0),
+    }));
+    if (normalizedPayments.some((payment) => !["cash", "online", "card"].includes(payment.method)
+        || !Number.isFinite(payment.amount) || payment.amount < 0
+        || !Number.isSafeInteger(Math.round(payment.amount * 100)))) {
+        return res.status(400).json({ message: "Payments must use a valid method and a non-negative amount" });
+    }
+    normalizedPayments.forEach((payment) => { payment.amount = Math.round(payment.amount * 100) / 100; });
+    const paymentTotal = normalizedPayments.reduce((sum, payment) => sum + payment.amount, 0);
     const creditUsed = Math.min(Number(customerRecord?.credit || 0), total);
+    const cashReceived = normalizedPayments.filter((payment) => payment.method === "cash")
+        .reduce((sum, payment) => sum + payment.amount, 0);
+    const changeGiven = Math.max(0, Math.round((paymentTotal + creditUsed - total) * 100) / 100);
+    if (Math.round(changeGiven * 100) > Math.round(cashReceived * 100)) {
+        return res.status(400).json({ message: "Non-cash payments cannot exceed the amount due. Change can only be returned from cash received." });
+    }
 
     if (paymentTotal + creditUsed < total - 0.01) {
         return res.status(400).json({ message: "Payment total must cover the invoice amount" });
@@ -3290,6 +3319,8 @@ app.post("/api/billing/invoices", authenticateToken, async (req, res) => {
         );
 
         const invoiceId = Number(invoiceResult.lastInsertRowid);
+        db.prepare("UPDATE invoices SET cashReceived = ?, changeGiven = ? WHERE id = ?")
+            .run(cashReceived, changeGiven, invoiceId);
 
         const insertItem = db.prepare(`
             INSERT INTO invoice_items (
@@ -3348,12 +3379,17 @@ app.post("/api/billing/invoices", authenticateToken, async (req, res) => {
             ) VALUES (?, ?, ?, ?)
         `);
 
-        payments.filter((payment) => Number(payment.amount || 0) > 0).forEach((payment) => {
+        let remainingChange = changeGiven;
+        normalizedPayments.forEach((payment) => {
+            const returned = payment.method === "cash" ? Math.min(payment.amount, remainingChange) : 0;
+            remainingChange = Math.round((remainingChange - returned) * 100) / 100;
+            const retainedAmount = Math.round((payment.amount - returned) * 100) / 100;
+            if (retainedAmount <= 0) return;
             insertPayment.run(
                 req.user.id,
                 invoiceId,
                 String(payment.method || "cash").trim().toLowerCase(),
-                Number(payment.amount || 0)
+                retainedAmount
             );
         });
 

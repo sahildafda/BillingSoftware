@@ -28,6 +28,7 @@ import {
 import { LuPrinter, LuArrowUpRight, LuFileDown, LuFileSpreadsheet, LuUndo2 } from "react-icons/lu";
 
 import AppLayout from "../components/layout/AppLayout";
+import { formatInvoiceDate } from "../utils/invoiceDate";
 import * as invoiceService from "../services/invoiceService";
 import { downloadExcelFile, getReportRecords, getReportSummary, normalizeGstFilter, printProfessionalReport } from "../utils/reportExport";
 
@@ -101,7 +102,7 @@ function InvoiceReceiptModal({ invoice, isOpen, onClose }) {
                                     <Text fontSize="2xl" fontWeight={700}>Billing Hub</Text>
                                     <Text fontSize="sm">{invoice.invoiceNumber}</Text>
                                 </Box>
-                                <Text fontSize="sm">{new Date(invoice.createdAt).toLocaleString()}</Text>
+                                <Text fontSize="sm">{formatInvoiceDate(invoice.createdAt, true)} IST</Text>
                             </Flex>
 
                             <Divider />
@@ -150,6 +151,10 @@ function InvoiceReceiptModal({ invoice, isOpen, onClose }) {
                                             <Text>{formatMoney(amount)}</Text>
                                         </Flex>
                                     ))}
+                                    {Number(invoice.cashReceived) > 0 && <>
+                                        <Flex justify="space-between"><Text>Cash received</Text><Text>{formatMoney(invoice.cashReceived)}</Text></Flex>
+                                        <Flex justify="space-between" fontWeight={700}><Text>Change given</Text><Text>{formatMoney(invoice.changeGiven)}</Text></Flex>
+                                    </>}
                                 </VStack>
                             </Box>
                         </VStack>
@@ -512,7 +517,7 @@ export default function InvoiceHistory() {
                                     <Tr key={invoice.id}>
                                         <Td>
                                             <Text fontWeight={700}>{invoice.invoiceNumber}</Text>
-                                            <Text fontSize="sm" color="muted">{new Date(invoice.createdAt).toLocaleDateString()}</Text>
+                                            <Text fontSize="sm" color="muted">{formatInvoiceDate(invoice.createdAt)}</Text>
                                         </Td>
                                         <Td>{invoice.customerName || "Walk-in Customer"}</Td>
                                         <Td>{formatMoney(invoice.total)}</Td>

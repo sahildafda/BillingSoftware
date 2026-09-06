@@ -40,7 +40,7 @@ function formatMoney(value) {
         style: "currency",
         currency: "INR",
         minimumFractionDigits: 0,
-        maximumFractionDigits: 0,
+        maximumFractionDigits: 2,
     });
 }
 
@@ -310,8 +310,13 @@ export default function Billing() {
     const creditAvailable = Number(selectedCustomer?.credit || 0);
     const creditUsed = Math.min(creditAvailable, grandTotal);
     const paymentTotal = payments.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    const cashReceived = payments.filter((row) => row.method === "cash")
+        .reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    const changeGiven = Math.max(0, Math.round((paymentTotal + creditUsed - grandTotal) * 100) / 100);
+    const invalidOverpayment = Math.round(changeGiven * 100) > Math.round(cashReceived * 100);
     const balanceDue = Math.max(0, grandTotal - creditUsed - paymentTotal);
-    const canFinalize = cart.length > 0 && balanceDue <= 0.01;
+    const canFinalize = cart.length > 0 && balanceDue <= 0.01 && !invalidOverpayment
+        && payments.every((row) => Number.isFinite(Number(row.amount || 0)) && Number(row.amount || 0) >= 0);
     const showCustomerSuggestions = !selectedCustomer && customerQuery.trim() && filteredCustomers.length > 0;
 
     async function finalizeInvoice() {
@@ -365,7 +370,7 @@ export default function Billing() {
             const invoice = response?.data?.invoice;
 
             setStatusMessage(
-                `Invoice ${invoice?.invoiceNumber || "created"} saved successfully.`
+                `Invoice ${invoice?.invoiceNumber || "created"} saved successfully.${invoice?.changeGiven > 0 ? ` Change to give: ${formatMoney(invoice.changeGiven)}.` : ""}`
             );
 
             setCart([]);
@@ -597,7 +602,7 @@ export default function Billing() {
                         <ModalHeader>Complete payment</ModalHeader>
                         <ModalCloseButton isDisabled={isFinalizing} />
                         <ModalBody pb={6}>
-                            <Text color="muted" mb={4}>Add payment details and confirm the invoice.</Text>
+                            <Text color="muted" mb={4}>For cash, enter the amount received from the customer. Change is calculated automatically.</Text>
                             <VStack spacing={3} align="stretch">
                         {payments.map((payment) => (
                             <Box key={payment.id} bg="card" border="1px solid" borderColor="border" borderRadius="md" p={3}>
@@ -630,6 +635,7 @@ export default function Billing() {
                                         step="0.01"
                                         min="0"
                                         value={payment.amount}
+                                        aria-label={payment.method === "cash" ? "Cash received" : "Payment amount"}
                                         onChange={(e) => updatePaymentRow(payment.id, "amount", e.target.value)}
                                         onFocus={(e) => e.target.select()}
                                         placeholder={balanceDue > 0 ? `Amount (₹${Math.ceil(balanceDue)})` : "Amount"}
@@ -671,7 +677,13 @@ export default function Billing() {
                             {Math.abs(roundingAdjustment) >= 0.005 && <Flex justify="space-between"><Text color="muted">Rounding</Text><Text>{roundingAdjustment >= 0 ? "+ " : "- "}{formatMoney(Math.abs(roundingAdjustment))}</Text></Flex>}
                             <Flex justify="space-between" fontWeight={700}><Text>Total</Text><Text>{formatMoney(grandTotal)}</Text></Flex>
                             {selectedCustomer && <Flex justify="space-between"><Text color="muted">Customer credit applied</Text><Text color="positive">- {formatMoney(creditUsed)}</Text></Flex>}
-                            <Flex justify="space-between"><Text color="muted">Paid</Text><Text>{formatMoney(paymentTotal)}</Text></Flex>
+                            <Flex justify="space-between"><Text color="muted">Amount received</Text><Text>{formatMoney(paymentTotal)}</Text></Flex>
+                            {cashReceived > 0 && !invalidOverpayment && (
+                                <Flex justify="space-between" fontWeight={700} color="positive">
+                                    <Text>Change to give</Text><Text>{formatMoney(changeGiven)}</Text>
+                                </Flex>
+                            )}
+                            {invalidOverpayment && <Text color="danger">Non-cash payments cannot exceed the amount due. Check the payment amounts.</Text>}
                             <Flex justify="space-between" fontWeight={700} color={balanceDue <= 0 ? "positive" : "warning"}>
                                 <Text>Balance</Text>
                                 <Text>{formatMoney(balanceDue)}</Text>

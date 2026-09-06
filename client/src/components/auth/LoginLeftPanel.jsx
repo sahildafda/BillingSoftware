@@ -43,8 +43,8 @@ export default function LoginLeftPanel() {
     return (
         <Box
             h="100%"
-            bgGradient="linear(to-br, #202123 0%, #17181b 100%)"
-            color="white"
+            bg="background"
+            color="text"
             px={{ base: 8, lg: 10 }}
             py={{ base: 10, lg: 16 }}
             display="flex"
@@ -86,7 +86,7 @@ export default function LoginLeftPanel() {
                     <Heading size="2xl" fontWeight="700">
                         MotoDhandho
                     </Heading>
-                    <Text color="gray.400" fontSize="lg" mt={2} lineHeight="tall">
+                    <Text color="muted" fontSize="lg" mt={2} lineHeight="tall">
                         Business made simple with a polished billing and stock experience.
                     </Text>
                 </Box>
@@ -95,9 +95,9 @@ export default function LoginLeftPanel() {
                     {features.map((item) => (
                         <Box
                             key={item.title}
-                            bg="rgba(255,255,255,0.04)"
+                            bg="surface"
                             border="1px solid"
-                            borderColor="rgba(255,255,255,0.08)"
+                            borderColor="border"
                             rounded="xl"
                             p={4}
                         >
@@ -105,7 +105,7 @@ export default function LoginLeftPanel() {
                                 <Icon as={item.icon} color="primary" boxSize={5} mt={1} />
                                 <Box>
                                     <Text fontWeight="600">{item.title}</Text>
-                                    <Text color="gray.400" fontSize="sm" mt={1}>
+                                    <Text color="muted" fontSize="sm" mt={1}>
                                         {item.description}
                                     </Text>
                                 </Box>
@@ -114,7 +114,7 @@ export default function LoginLeftPanel() {
                     ))}
                 </SimpleGrid>
 
-                <Text color="gray.500" fontSize="sm">
+                <Text color="muted" fontSize="sm">
                     Version 1.0.0 • Secure and fast
                 </Text>
             </VStack>

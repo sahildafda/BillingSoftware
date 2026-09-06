@@ -1,3 +1,5 @@
+import { formatInvoiceDate } from "./invoiceDate.js";
+
 export function normalizeGstFilter(value) {
     const safeValue = String(value || "all").trim().toLowerCase();
 
@@ -77,7 +79,7 @@ export function downloadExcelFile(rows, fileName = "invoice-report.xlsx") {
 
         const values = [
             row.orderNumber || "",
-            row.orderDate ? new Date(row.orderDate).toLocaleDateString("en-IN") : "",
+            row.orderDate ? formatInvoiceDate(row.orderDate) : "",
             Number(row.orderAmount || 0),
             Number(row.taxFreeTotal || 0),
             Number(row.gst5Total || 0),
@@ -109,7 +111,7 @@ export function printProfessionalReport(rows, reportTitle = "GST Report") {
         .map((row) => `
         <tr>
           <td>${row.orderNumber || ""}</td>
-          <td>${row.orderDate ? new Date(row.orderDate).toLocaleDateString("en-IN") : ""}</td>
+          <td>${row.orderDate ? formatInvoiceDate(row.orderDate) : ""}</td>
           <td>${formatCurrency(row.orderAmount)}</td>
           <td>${formatCurrency(row.taxFreeTotal)}</td>
           <td>${formatCurrency(row.gst5Total)}</td>
