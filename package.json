@@ -1,6 +1,6 @@
 {
   "name": "billingsoftware",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Billing Software",
   "main": "electron/main.js",
   "scripts": {
