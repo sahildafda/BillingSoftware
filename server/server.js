@@ -1179,7 +1179,7 @@ async function sendOtpEmail(email, otp) {
 }
 
 function ensureDatabaseBackupDirectory() {
-    const backupDir = path.join(__dirname, "backups");
+    const backupDir = BACKUP_DIR;
     require("fs").mkdirSync(backupDir, { recursive: true });
     return backupDir;
 }
@@ -2515,7 +2515,7 @@ app.post("/api/db/backup", authenticateToken, async (req, res) => {
 });
 
 app.get("/api/db/backup-list", authenticateToken, (req, res) => {
-    const backupDir = path.join(__dirname, "backups");
+    const backupDir = BACKUP_DIR;
 
     try {
         require("fs").mkdirSync(backupDir, { recursive: true });
@@ -2531,7 +2531,7 @@ app.get("/api/db/backup-list", authenticateToken, (req, res) => {
 
 app.get("/api/db/download/:fileName", authenticateToken, (req, res) => {
     const fileName = path.basename(req.params.fileName);
-    const backupPath = path.join(__dirname, "backups", fileName);
+    const backupPath = path.join(BACKUP_DIR, fileName);
 
     if (!require("fs").existsSync(backupPath)) {
         return res.status(404).json({ message: "Backup file not found" });

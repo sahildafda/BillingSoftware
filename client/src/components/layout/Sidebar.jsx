@@ -8,7 +8,13 @@ import {
     MenuButton,
     MenuItem,
     MenuList,
+    Modal,
+    ModalBody,
+    ModalContent,
+    ModalHeader,
+    ModalOverlay,
     Portal,
+    Spinner,
     Text,
     Tooltip,
     useColorMode,
@@ -49,9 +55,14 @@ export default function Sidebar({ collapsed, onToggle, activePath }) {
     const user = JSON.parse(localStorage.getItem("authUser") || "null");
     const fileInputRef = useRef(null);
     const [isUploading, setIsUploading] = useState(false);
+    const [isLoggingOut, setIsLoggingOut] = useState(false);
+    const logoutInProgress = useRef(false);
     const { colorMode, toggleColorMode } = useColorMode();
 
     async function handleLogout() {
+        if (logoutInProgress.current) return;
+        logoutInProgress.current = true;
+        setIsLoggingOut(true);
         const token = localStorage.getItem("authToken");
 
         try {
@@ -297,19 +308,43 @@ export default function Sidebar({ collapsed, onToggle, activePath }) {
                                 <MenuItem
                                     icon={<LuLogOut />}
                                     onClick={handleLogout}
+                                    isDisabled={isLoggingOut}
                                     bg="surface"
                                     color="danger"
                                     whiteSpace="nowrap"
                                     _hover={{ bg: "card" }}
                                     _focus={{ bg: "card" }}
                                 >
-                                    Logout
+                                    {isLoggingOut ? "Logging out..." : "Logout"}
                                 </MenuItem>
                             </MenuList>
                         </Portal>
                     </Menu>
                 </Box>
             </Box>
+            <Modal
+                isOpen={isLoggingOut}
+                onClose={() => {}}
+                isCentered
+                closeOnOverlayClick={false}
+                closeOnEsc={false}
+            >
+                <ModalOverlay />
+                <ModalContent bg="surface" color="text" mx={4}>
+                    <ModalHeader>Logging out</ModalHeader>
+                    <ModalBody pb={6}>
+                        <HStack spacing={4} role="status" aria-live="polite">
+                            <Spinner size="lg" flexShrink={0} aria-hidden="true" />
+                            <Box>
+                                <Text fontWeight="600">Taking a database backup and sending your daily summary...</Text>
+                                <Text mt={2} color="muted" fontSize="sm">
+                                    Please wait and keep the app open. You will be redirected when finished.
+                                </Text>
+                            </Box>
+                        </HStack>
+                    </ModalBody>
+                </ModalContent>
+            </Modal>
             <input
                 ref={fileInputRef}
                 type="file"

@@ -1,11 +1,50 @@
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, dialog, Menu } = require("electron");
+const { autoUpdater } = require("electron-updater");
+const { configureUpdates } = require("./updates");
 const path = require("path");
 const { spawn } = require("child_process");
 
 let mainWindow;
 let serverProcess;
+let updates;
+let updateTimer;
 
 const isDev = !app.isPackaged;
+const hasInstanceLock = app.requestSingleInstanceLock();
+if (!hasInstanceLock) app.quit();
+app.on("second-instance", () => {
+    if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
+    }
+});
+const dataDirectory = () => isDev ? path.join(__dirname, "..", "server") : path.join(app.getPath("userData"), "data");
+
+async function prepareUpdate() {
+    const backend = serverProcess;
+    if (!backend || backend.exitCode !== null) throw new Error("Backend is unavailable. Restart the application before updating.");
+    await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("Backend did not stop; update cancelled.")), 15000);
+        backend.once("exit", () => { clearTimeout(timer); resolve(); });
+        if (!backend.kill()) { clearTimeout(timer); reject(new Error("Could not stop backend.")); }
+    });
+    serverProcess = null;
+    await new Promise((resolve, reject) => {
+        const helper = spawn(process.execPath, [path.join(process.resourcesPath, "server", "updateBackup.js")], {
+            env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", BILLING_DATA_DIR: dataDirectory() },
+            windowsHide: true, stdio: "pipe"
+        });
+        let errorText = "";
+        helper.stdout.on("data", (data) => console.log(`[Update backup] ${data}`));
+        helper.stderr.on("data", (data) => { errorText += data.toString(); });
+        helper.once("error", reject);
+        helper.once("exit", (code) => code === 0 ? resolve() : reject(new Error(errorText || "Database backup failed.")));
+    });
+}
+
+function recoverBackend() {
+    if (!serverProcess || serverProcess.exitCode !== null || serverProcess.signalCode !== null) startBackend();
+}
 
 function startBackend() {
     const serverPath = isDev
@@ -97,11 +136,19 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+    if (!hasInstanceLock) return;
     startBackend();
 
     // Give Express time to start
     setTimeout(() => {
         createWindow();
+        updates = configureUpdates({ app, autoUpdater, dialog, getWindow: () => mainWindow,
+            prepareUpdate, recoverBackend });
+        Menu.setApplicationMenu(Menu.buildFromTemplate([
+            { label: "Help", submenu: [{ label: "Check for updates", accelerator: "Ctrl+Shift+U", click: () => updates.check(true) }] }
+        ]));
+        void updates.check();
+        updateTimer = setInterval(() => updates.check(), 4 * 60 * 60 * 1000);
     }, 2500);
 });
 
@@ -117,6 +164,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+    clearInterval(updateTimer);
     if (serverProcess) {
         serverProcess.kill();
         serverProcess = null;
