@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MotoDhandho Installation Guide</title>
+    <style>
+        :root { --ink:#21313a; --muted:#64747b; --paper:#fffdf9; --soft:#f7efe5; --line:#e8ddd0; --orange:#d97757; --orange-dark:#a74d34; --teal:#2f7770; --teal-soft:#e8f3f0; --gold:#e2a83c; }
+        * { box-sizing:border-box; }
+        body { margin:0; color:var(--ink); background:#efe8df; font:16px/1.62 Georgia,"Times New Roman",serif; }
+        .page { max-width:1120px; margin:32px auto; background:var(--paper); box-shadow:0 18px 50px rgba(47,55,50,.1); }
+        .hero { min-height:390px; padding:64px 72px; color:#fffaf4; background:linear-gradient(135deg,#8d3f2f 0%,var(--orange) 54%,#d69c41 100%); position:relative; overflow:hidden; }
+        .hero:after { content:""; width:390px; height:390px; border:1px solid rgba(255,255,255,.28); border-radius:50%; position:absolute; right:-80px; top:-120px; box-shadow:0 0 0 34px rgba(255,255,255,.06),0 0 0 70px rgba(255,255,255,.04); }
+        .eyebrow { font:700 13px/1.2 Arial,sans-serif; letter-spacing:2px; text-transform:uppercase; opacity:.85; }
+        h1,h2,h3,h4 { font-family:Arial,Helvetica,sans-serif; line-height:1.15; }
+        h1 { max-width:650px; margin:20px 0 18px; font-size:68px; letter-spacing:-2px; }
+        .hero p { max-width:610px; margin:0; font-size:21px; }
+        .brand { position:absolute; right:72px; bottom:50px; z-index:1; text-align:right; font:700 18px Arial,sans-serif; letter-spacing:1px; }
+        .brand span { display:block; margin-top:5px; font:13px Arial,sans-serif; opacity:.8; letter-spacing:0; }
+        .content { display:grid; grid-template-columns:245px 1fr; gap:52px; padding:48px 72px 72px; }
+        .toc { align-self:start; padding:20px; background:var(--soft); border:1px solid var(--line); border-radius:10px; }
+        .toc h2 { margin:0 0 12px; font-size:15px; text-transform:uppercase; letter-spacing:1px; color:var(--orange-dark); }
+        .toc a { display:block; padding:5px 0; color:var(--ink); text-decoration:none; font:14px/1.35 Arial,sans-serif; }
+        main>section { padding-top:4px; margin-bottom:52px; }
+        h2 { margin:0 0 18px; color:var(--orange-dark); font-size:30px; }
+        h3 { margin:28px 0 9px; color:var(--teal); font-size:20px; }
+        h4 { margin:18px 0 5px; font-size:16px; }
+        p { margin:9px 0; } ul,ol { padding-left:24px; } li { margin:7px 0; }
+        .lead { color:var(--muted); font-size:19px; }
+        .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin:20px 0; }
+        .card { padding:20px; border:1px solid var(--line); border-radius:9px; background:#fff; }
+        .card h3 { margin-top:0; }
+        .tip,.warning { margin:18px 0; padding:16px 18px 16px 20px; border-left:4px solid var(--teal); background:var(--teal-soft); }
+        .warning { border-left-color:var(--gold); background:#fff8e8; }
+        .tip strong,.warning strong { display:block; margin-bottom:3px; font:700 12px Arial,sans-serif; letter-spacing:1px; text-transform:uppercase; }
+        table { width:100%; margin:18px 0; border-collapse:collapse; font-size:15px; } th,td { padding:11px 12px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; } th { color:var(--orange-dark); background:var(--soft); font:700 13px Arial,sans-serif; text-transform:uppercase; letter-spacing:.5px; }
+        .steps { counter-reset:step; list-style:none; padding:0; } .steps li { counter-increment:step; position:relative; padding:2px 0 10px 44px; } .steps li:before { content:counter(step); position:absolute; left:0; top:0; display:grid; place-items:center; width:28px; height:28px; border-radius:50%; color:#fff; background:var(--orange); font:700 14px Arial,sans-serif; }
+        code { padding:2px 5px; border-radius:4px; background:var(--soft); font:13px Consolas,monospace; }
+        .footer { padding:28px 72px; color:#fffaf4; background:var(--ink); font-family:Arial,sans-serif; } .footer strong { color:#f5bd75; }
+        @media (max-width:800px) { .page{margin:0}.hero{min-height:420px;padding:42px 28px}h1{font-size:48px}.brand{left:28px;right:auto;bottom:34px;text-align:left}.content{display:block;padding:32px 28px 50px}.toc{margin-bottom:38px}.grid{grid-template-columns:1fr}.footer{padding:25px 28px} }
+        @media print { body{background:#fff}.page{margin:0;box-shadow:none;max-width:none}.hero{-webkit-print-color-adjust:exact;print-color-adjust:exact}.card,.tip,.warning,table{break-inside:avoid}a{color:inherit}h2,h3{break-after:avoid}section{break-inside:auto} }
+    </style>
+</head>
+<body>
+<div class="page">
+    <header class="hero">
+        <div class="eyebrow">Windows client guide</div>
+        <h1>MotoDhandho<br>Installation Guide</h1>
+        <p>Install the desktop app, create your business account, and complete your first bill with confidence.</p>
+        <div class="brand">VELOURA<span>Installation and quick-start guide · Version 1.0.1</span></div>
+    </header>
+    <div class="content">
+        <nav class="toc" aria-label="Contents">
+            <h2>Contents</h2>
+            <a href="#before">1. Before you begin</a>
+            <a href="#install">2. Install on Windows</a>
+            <a href="#account">3. Create your account</a>
+            <a href="#setup">4. Set up your business</a>
+            <a href="#billing">5. Create your first bill</a>
+            <a href="#manage">6. Manage daily work</a>
+            <a href="#backup">7. Backups and updates</a>
+            <a href="#trouble">8. Troubleshooting</a>
+        </nav>
+        <main>
+            <section id="before">
+                <h2>1. Before you begin</h2>
+                <p class="lead">MotoDhandho is a Windows desktop application for products, customers, suppliers, billing, reports, and business data.</p>
+                <div class="grid">
+                    <div class="card"><h3>What you need</h3><ul><li>A Windows 10 or Windows 11 computer.</li><li>The installer file named <code>Billing-Software-Setup-1.0.1.exe</code> or the latest version supplied to you.</li><li>An internet connection for account verification and application updates.</li><li>Access to the email address used for your business account.</li></ul></div>
+                    <div class="card"><h3>Before installing</h3><ul><li>Close any older Billing Software window.</li><li>Keep at least 500 MB of free disk space.</li><li>Ask your Windows administrator for permission if your computer blocks software installation.</li><li>Do not delete the installer until you have confirmed the app opens correctly.</li></ul></div>
+                </div>
+                <div class="warning"><strong>Important</strong>Install the application on the computer where you will use the business data. The app stores its local database on that computer.</div>
+            </section>
+
+            <section id="install">
+                <h2>2. Install on Windows</h2>
+                <ol class="steps">
+                    <li>Open the folder containing the installer and double-click <strong>Billing-Software-Setup-1.0.1.exe</strong>. Use the latest version number if it is different.</li>
+                    <li>If Windows shows a security prompt, confirm that you want to run the installer. If your company manages the computer, contact your administrator.</li>
+                    <li>Choose the installation folder, or keep the suggested folder, then select <strong>Install</strong>.</li>
+                    <li>Wait for setup to finish. Keep <strong>Create a desktop shortcut</strong> selected if you want an easy shortcut.</li>
+                    <li>Select <strong>Finish</strong>, then open <strong>Billing Software</strong> from the desktop or Windows Start Menu.</li>
+                </ol>
+                <div class="tip"><strong>First launch</strong>The application starts its local service automatically. Give it a few seconds to load before trying again if the window opens slowly.</div>
+                <h3>Sign in after installation</h3>
+                <p>On the first screen, choose <strong>Log in</strong> if your account already exists. Choose <strong>Create an account</strong> if this is a new installation for your business.</p>
+            </section>
+
+            <section id="account">
+                <h2>3. Create your account</h2>
+                <ol class="steps">
+                    <li>Select <strong>Create an account</strong>.</li>
+                    <li>Enter company name, GST number, owner name, email, shop address, and a password.</li>
+                    <li>Submit the form. Check the email inbox for the one-time verification code.</li>
+                    <li>Enter the code in MotoDhandho. If the code expires, request a new code and use the newest message.</li>
+                    <li>Return to the login screen and sign in with your email and password.</li>
+                </ol>
+                <div class="tip"><strong>Account security</strong>Do not share your password or verification code. Keep the login email accessible because it is used for verification.</div>
+            </section>
+
+            <section id="setup">
+                <h2>4. Set up your business</h2>
+                <p>For the smoothest checkout, use this order: suppliers, products, then customers.</p>
+                <table><thead><tr><th>Area</th><th>What to do</th><th>Why it matters</th></tr></thead><tbody>
+                    <tr><td><strong>Suppliers</strong></td><td>Open Suppliers, select Add supplier, enter the supplier and company details, then select Save.</td><td>A supplier is required when adding a product.</td></tr>
+                    <tr><td><strong>Products</strong></td><td>Open Products, select Add product, choose a supplier, enter prices, stock, GST, and discount, then save.</td><td>Saved products can be found by name or barcode during billing.</td></tr>
+                    <tr><td><strong>Customers</strong></td><td>Open Customers, select Add customer, enter name, contact number, email, and optional credit, firm, or GST details.</td><td>Saved customers make receipts, credit, and returns easier to track.</td></tr>
+                </tbody></table>
+                <p>When a product is saved, MotoDhandho creates its barcode automatically. Products can also be edited, searched, sorted, deleted, and printed as barcode labels.</p>
+                <div class="warning"><strong>Check before deleting</strong>Product, customer, and supplier deletion requires confirmation. Deleting a record can affect future work, so verify the record before confirming.</div>
+            </section>
+
+            <section id="billing">
+                <h2>5. Create your first bill</h2>
+                <ol class="steps">
+                    <li>Open <strong>Billing</strong> from the left navigation.</li>
+                    <li>Select a saved customer, or leave the bill as <strong>Walk-in Customer</strong>. You can add a new customer from the billing screen.</li>
+                    <li>Find a product by typing its name, or scan/type its barcode. A barcode scanner may paste the code directly into the barcode field.</li>
+                    <li>Check the cart. Adjust quantities or remove items if necessary.</li>
+                    <li>Open the payment area and choose <strong>Cash</strong>, <strong>Online</strong>, or <strong>Card</strong>. Add another payment row for a split payment.</li>
+                    <li>Enter the amount received. The screen shows the total, balance due, and change where applicable.</li>
+                    <li>Complete the sale. The invoice is saved and product stock is reduced automatically.</li>
+                    <li>Open the saved receipt and select <strong>Print</strong> if the customer needs a paper copy.</li>
+                </ol>
+                <div class="grid"><div class="card"><h3>Split payment</h3><p>For a Rs. 1,000 bill, enter Rs. 700 as Cash and Rs. 300 as Card. Complete the sale when the payment total covers the bill.</p></div><div class="card"><h3>Cash change</h3><p>For a Rs. 450 bill, enter Rs. 500 as cash received. MotoDhandho calculates Rs. 50 change.</p></div></div>
+            </section>
+
+            <section id="manage">
+                <h2>6. Manage daily work</h2>
+                <h3>Dashboard</h3><p>Use Dashboard to see revenue, orders, customers, inventory, payment mix, top-selling products, and low-stock items. Select This month, This year, or All time, then select Refresh for current figures.</p>
+                <h3>Reports</h3><p>Open Reports to filter invoices by date and GST information. You can view invoice details, print a receipt, export report data, and process eligible product returns. A return restores stock and adds the returned amount to the customer credit.</p>
+                <h3>Navigation and appearance</h3><p>The left menu opens Dashboard, Billing, Products, Customers, Suppliers, and Reports. Select the account picture for light/dark mode, database backup, import, download, and logout.</p>
+            </section>
+
+            <section id="backup">
+                <h2>7. Backups and updates</h2>
+                <h3>Make a manual backup</h3>
+                <ol class="steps"><li>Select your account picture in the lower-left area.</li><li>Select <strong>Export Database Backup</strong> or <strong>Download Backup</strong>.</li><li>Store the downloaded backup in a secure folder or external drive.</li></ol>
+                <p>Logout also requests a database backup before ending the session. Keep regular manual backups in a location separate from the computer.</p>
+                <h3>Restore a backup</h3><ol class="steps"><li>Sign in and open the account menu.</li><li>Select <strong>Import Database</strong> and choose a compatible backup file.</li><li>Wait for the success message, then allow the application to reload.</li></ol>
+                <div class="warning"><strong>Restore carefully</strong>Importing replaces the current application data with the selected backup. Export the current database first if you may need it later.</div>
+                <h3>Install an update</h3><p>The installed app checks for releases at startup and periodically. When an update is available, choose <strong>Download update</strong>, then choose <strong>Back up and restart</strong> when you are ready. Save unfinished work first. You can choose <strong>Later</strong> and install from the update prompt again.</p>
+                <p>To check manually, open <strong>Help &gt; Check for updates</strong>, or press <code>Ctrl+Shift+U</code>. Updates create and verify a pre-update database snapshot before installing. If that backup cannot be verified, the update is cancelled and the current app remains available.</p>
+            </section>
+
+            <section id="trouble">
+                <h2>8. Troubleshooting</h2>
+                <table><thead><tr><th>Problem</th><th>Try this</th></tr></thead><tbody>
+                    <tr><td>The app does not open</td><td>Close any existing Billing Software window, start it again from Start Menu, and wait a few seconds. Restart Windows if the local service is still unavailable.</td></tr>
+                    <tr><td>Verification email did not arrive</td><td>Check spam/junk folders, confirm the email address, and request a new code. Use the newest code only.</td></tr>
+                    <tr><td>A barcode is not found</td><td>Check the code for extra spaces, confirm the product was saved with that barcode, or search by product name.</td></tr>
+                    <tr><td>Update cannot install</td><td>Save work, close other app windows, check free disk space, and try again. Do not remove the application data folder.</td></tr>
+                    <tr><td>Backup or import fails</td><td>Confirm you selected a compatible backup file and that Windows allows access to the chosen folder. Keep the original backup unchanged.</td></tr>
+                </tbody></table>
+                <div class="tip"><strong>Support information</strong>When contacting support, include the Billing Software version, the step that failed, and the exact message shown. Never send your password or verification code.</div>
+            </section>
+        </main>
+    </div>
+    <footer class="footer"><strong>MotoDhandho</strong><br>Installation and quick-start guide for Windows clients.<br>Application version 1.0.1 · Prepared September 2026</footer>
+</div>
+</body>
+</html>

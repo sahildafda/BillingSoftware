@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MotoDhandho User Manual | Veloura</title>
+    <style>
+        :root {
+            --ink: #21313a;
+            --muted: #64747b;
+            --paper: #fffdf9;
+            --soft: #f7efe5;
+            --line: #e8ddd0;
+            --orange: #d97757;
+            --orange-dark: #a74d34;
+            --teal: #2f7770;
+            --teal-soft: #e8f3f0;
+            --gold: #e2a83c;
+            --shadow: 0 18px 50px rgba(47, 55, 50, .10);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            margin: 0;
+            color: var(--ink);
+            background: #efe8df;
+            font: 16px/1.65 Georgia, "Times New Roman", serif;
+        }
+
+        .page {
+            max-width: 1120px;
+            margin: 32px auto;
+            background: var(--paper);
+            box-shadow: var(--shadow);
+        }
+
+        .hero {
+            min-height: 390px;
+            padding: 64px 72px;
+            color: #fffaf4;
+            background: linear-gradient(135deg, #8d3f2f 0%, var(--orange) 54%, #d69c41 100%);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero:after {
+            content: "";
+            width: 390px;
+            height: 390px;
+            border: 1px solid rgba(255, 255, 255, .28);
+            border-radius: 50%;
+            position: absolute;
+            right: -80px;
+            top: -120px;
+            box-shadow: 0 0 0 34px rgba(255, 255, 255, .06), 0 0 0 70px rgba(255, 255, 255, .04);
+        }
+
+        .eyebrow {
+            font: 700 13px/1.2 Arial, sans-serif;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            opacity: .85;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4 {
+            font-family: Arial, Helvetica, sans-serif;
+            line-height: 1.15;
+        }
+
+        h1 {
+            max-width: 650px;
+            margin: 20px 0 18px;
+            font-size: clamp(42px, 7vw, 76px);
+            letter-spacing: -2px;
+        }
+
+        .hero p {
+            max-width: 570px;
+            margin: 0;
+            font-size: 21px;
+        }
+
+        .brand {
+            position: absolute;
+            right: 72px;
+            bottom: 50px;
+            z-index: 1;
+            text-align: right;
+            font: 700 18px Arial, sans-serif;
+            letter-spacing: 1px;
+        }
+
+        .brand span {
+            display: block;
+            margin-top: 5px;
+            font: 13px Arial, sans-serif;
+            opacity: .8;
+            letter-spacing: 0;
+        }
+
+        .content {
+            display: grid;
+            grid-template-columns: 245px 1fr;
+            gap: 52px;
+            padding: 48px 72px 72px;
+        }
+
+        .toc {
+            position: sticky;
+            top: 20px;
+            align-self: start;
+            padding: 20px;
+            background: var(--soft);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+        }
+
+        .toc h2 {
+            margin: 0 0 12px;
+            font-size: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--orange-dark);
+        }
+
+        .toc a {
+            display: block;
+            padding: 5px 0;
+            color: var(--ink);
+            text-decoration: none;
+            font: 14px/1.35 Arial, sans-serif;
+        }
+
+        .toc a:hover {
+            color: var(--orange-dark);
+        }
+
+        main>section {
+            padding-top: 4px;
+            margin-bottom: 52px;
+            scroll-margin-top: 20px;
+        }
+
+        h2 {
+            margin: 0 0 18px;
+            color: var(--orange-dark);
+            font-size: 30px;
+        }
+
+        h3 {
+            margin: 28px 0 9px;
+            color: var(--teal);
+            font-size: 20px;
+        }
+
+        h4 {
+            margin: 18px 0 5px;
+            font-size: 16px;
+        }
+
+        p {
+            margin: 9px 0;
+        }
+
+        ul,
+        ol {
+            padding-left: 24px;
+        }
+
+        li {
+            margin: 7px 0;
+        }
+
+        .lead {
+            color: var(--muted);
+            font-size: 19px;
+        }
+
+        .rule {
+            border: 0;
+            border-top: 1px solid var(--line);
+            margin: 30px 0;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+            margin: 20px 0;
+        }
+
+        .card {
+            padding: 20px;
+            border: 1px solid var(--line);
+            border-radius: 9px;
+            background: #fff;
+        }
+
+        .card h3 {
+            margin-top: 0;
+        }
+
+        .tip,
+        .warning {
+            margin: 18px 0;
+            padding: 16px 18px 16px 20px;
+            border-left: 4px solid var(--teal);
+            background: var(--teal-soft);
+        }
+
+        .warning {
+            border-left-color: var(--gold);
+            background: #fff8e8;
+        }
+
+        .tip strong,
+        .warning strong {
+            display: block;
+            margin-bottom: 3px;
+            font: 700 12px Arial, sans-serif;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        table {
+            width: 100%;
+            margin: 18px 0;
+            border-collapse: collapse;
+            font-size: 15px;
+        }
+
+        th,
+        td {
+            padding: 11px 12px;
+            border-bottom: 1px solid var(--line);
+            text-align: left;
+            vertical-align: top;
+        }
+
+        th {
+            color: var(--orange-dark);
+            background: var(--soft);
+            font: 700 13px Arial, sans-serif;
+            text-transform: uppercase;
+            letter-spacing: .5px;
+        }
+
+        .steps {
+            counter-reset: step;
+            list-style: none;
+            padding: 0;
+        }
+
+        .steps li {
+            counter-increment: step;
+            position: relative;
+            padding: 2px 0 10px 44px;
+        }
+
+        .steps li:before {
+            content: counter(step);
+            position: absolute;
+            left: 0;
+            top: 0;
+            display: grid;
+            place-items: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            color: #fff;
+            background: var(--orange);
+            font: 700 14px Arial, sans-serif;
+        }
+
+        code {
+            padding: 2px 5px;
+            border-radius: 4px;
+            background: var(--soft);
+            font: 13px Consolas, monospace;
+        }
+
+        .footer {
+            padding: 28px 72px;
+            color: #fffaf4;
+            background: var(--ink);
+            font-family: Arial, sans-serif;
+        }
+
+        .footer strong {
+            color: #f5bd75;
+        }
+
+        @media (max-width: 800px) {
+            .page {
+                margin: 0;
+            }
+
+            .hero {
+                min-height: 420px;
+                padding: 42px 28px;
+            }
+
+            .brand {
+                left: 28px;
+                right: auto;
+                bottom: 34px;
+                text-align: left;
+            }
+
+            .content {
+                display: block;
+                padding: 32px 28px 50px;
+            }
+
+            .toc {
+                position: static;
+                margin-bottom: 38px;
+            }
+
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .footer {
+                padding: 25px 28px;
+            }
+        }
+
+        @media print {
+            body {
+                background: white;
+            }
+
+            .page {
+                margin: 0;
+                box-shadow: none;
+                max-width: none;
+            }
+
+            .hero {
+                min-height: 310px;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+
+            .toc {
+                position: static;
+            }
+
+            .card,
+            .tip,
+            .warning,
+            table {
+                break-inside: avoid;
+            }
+
+            a {
+                color: inherit;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="page">
+        <header class="hero">
+            <div class="eyebrow">Simple business billing</div>
+            <h1>MotoDhandho<br>User Manual</h1>
+            <p>A simple guide to managing products, customers, suppliers, billing, reports, and business data.</p>
+            <div class="brand">VELOURA<span>Product guide · Version 1.0.1</span></div>
+        </header>
+
+        <div class="content">
+            <nav class="toc" aria-label="Contents">
+                <h2>Contents</h2>
+                <a href="#start">1. Getting started</a>
+                <a href="#dashboard">2. Dashboard</a>
+                <a href="#setup">3. Set up your data</a>
+                <a href="#billing">4. Create a bill</a>
+                <a href="#reports">5. Reports and returns</a>
+                <a href="#backup">6. Backup and restore</a>
+                <a href="#updates">7. Updates and logout</a>
+                <a href="#help">8. Helpful notes</a>
+            </nav>
+
+            <main>
+                <section id="start">
+                    <h2>1. Getting started</h2>
+                    <p class="lead">MotoDhandho helps you keep your shop data in one place and complete sales quickly.
+                    </p>
+                    <h3>Create your account</h3>
+                    <ol class="steps">
+                        <li>Open MotoDhandho and select <strong>Create an account</strong>.</li>
+                        <li>Enter your company name, GST number, owner name, email, and shop address.</li>
+                        <li>Choose a password and confirm it.</li>
+                        <li>Check your email for the verification code and enter the code in MotoDhandho.</li>
+                        <li>Return to the sign-in screen and log in with your email and password.</li>
+                    </ol>
+                    <div class="tip"><strong>Good to know</strong>Keep your login email and password private. A session
+                        normally stays active for seven days on the same computer.</div>
+                    <h3>Navigation</h3>
+                    <p>After signing in, use the left menu to open <strong>Dashboard</strong>, <strong>Billing</strong>,
+                        <strong>Products</strong>, <strong>Customers</strong>, <strong>Suppliers</strong>, or
+                        <strong>Reports</strong>. Select your account picture for backup, theme, and logout options.</p>
+                </section>
+
+                <section id="dashboard">
+                    <h2>2. Dashboard</h2>
+                    <p>The Dashboard gives you a quick view of your business. Choose <strong>This month</strong>,
+                        <strong>This year</strong>, or <strong>All time</strong>, then choose the view you need.</p>
+                    <div class="grid">
+                        <div class="card">
+                            <h3>Business summary</h3>
+                            <p>See revenue, number of orders, customers, total stock, low-stock products, and
+                                out-of-stock products.</p>
+                        </div>
+                        <div class="card">
+                            <h3>Sales view</h3>
+                            <p>See orders and revenue over time. Move your pointer over a chart point for exact details.
+                            </p>
+                        </div>
+                        <div class="card">
+                            <h3>Payments view</h3>
+                            <p>See how much was collected by cash, online payment, and card.</p>
+                        </div>
+                        <div class="card">
+                            <h3>Inventory view</h3>
+                            <p>See product count, low stock, out-of-stock items, and top-selling products.</p>
+                        </div>
+                    </div>
+                    <p>Select <strong>Refresh</strong> whenever you want the latest numbers.</p>
+                    <h3>Sales Assistant</h3>
+                    <p>Open the round assistant button to view recent sales insights. You can ask simple questions such
+                        as:</p>
+                    <ul>
+                        <li>What products are in demand?</li>
+                        <li>Which products have low demand?</li>
+                        <li>What should I reorder?</li>
+                        <li>Who are my top customers?</li>
+                    </ul>
+                    <div class="tip"><strong>Note</strong>The Sales Assistant uses your billing data and provides
+                        focused business insights. It is not a general-purpose chat service.</div>
+                </section>
+
+                <section id="setup">
+                    <h2>3. Set up your business data</h2>
+                    <p>For the smoothest billing experience, add suppliers first, then products and customers.</p>
+                    <h3>Suppliers</h3>
+                    <ol class="steps">
+                        <li>Open <strong>Suppliers</strong> and select <strong>Add supplier</strong>.</li>
+                        <li>Enter supplier name, company name, contact number, and email. Address and notes are
+                            optional.</li>
+                        <li>Select <strong>Save</strong>. Use search, sorting, edit, or delete when needed.</li>
+                    </ol>
+                    <h3>Products</h3>
+                    <ol class="steps">
+                        <li>Open <strong>Products</strong> and select <strong>Add product</strong>.</li>
+                        <li>Enter product name and select a supplier. A supplier is required.</li>
+                        <li>Enter cost price, selling price, stock quantity, GST percentage, and discount percentage.
+                        </li>
+                        <li>Optionally add product images and internal reference details.</li>
+                        <li>Select <strong>Save</strong>. MotoDhandho creates a barcode automatically for the product.
+                        </li>
+                    </ol>
+                    <p>You can search products, filter by brand, sort by name or price, edit details, delete products,
+                        and print barcode labels in small, medium, or large sizes with the number of copies you need.
+                    </p>
+                    <div class="warning"><strong>Important</strong>Deleting a product is permanent. Check the product
+                        before confirming deletion.</div>
+                    <h3>Customers</h3>
+                    <ol class="steps">
+                        <li>Open <strong>Customers</strong> and select <strong>Add customer</strong>.</li>
+                        <li>Enter customer name, contact number, email, and starting credit if applicable.</li>
+                        <li>Optionally add firm name and GST number, then select <strong>Save</strong>.</li>
+                    </ol>
+                    <p>Customer records can be searched, sorted, edited, and deleted. A saved customer is useful for
+                        credit, receipts, and returns.</p>
+                </section>
+
+                <section id="billing">
+                    <h2>4. Create a bill</h2>
+                    <p class="lead">Billing is designed for fast checkout. You can bill a walk-in customer or choose a
+                        saved customer.</p>
+                    <ol class="steps">
+                        <li>Open <strong>Billing</strong>.</li>
+                        <li>Choose a saved customer, or leave the customer as a walk-in customer. You can also create a
+                            new customer from the billing screen.</li>
+                        <li>Add products by searching their name, or scan/type the barcode and press Enter. A barcode
+                            scanner can paste the code directly.</li>
+                        <li>Review the cart. Change quantities or remove an item when needed.</li>
+                        <li>Open payment and select <strong>Cash</strong>, <strong>Online</strong>, or
+                            <strong>Card</strong>. You may add more than one payment row for split payments.</li>
+                        <li>Apply available customer credit if the customer has credit.</li>
+                        <li>Enter the amount received. MotoDhandho shows balance due, change, and the final total.</li>
+                        <li>Complete the sale only when the payment covers the amount due. MotoDhandho saves the invoice
+                            and reduces stock automatically.</li>
+                    </ol>
+                    <div class="grid">
+                        <div class="card">
+                            <h3>Payment example</h3>
+                            <p>A customer owes Rs. 1,000. Enter Rs. 700 as cash and Rs. 300 as card. The bill is fully
+                                paid.</p>
+                        </div>
+                        <div class="card">
+                            <h3>Change example</h3>
+                            <p>A customer owes Rs. 450 and gives Rs. 500 cash. MotoDhandho shows Rs. 50 as change.</p>
+                        </div>
+                    </div>
+                    <h3>Receipt</h3>
+                    <p>After saving an invoice, open it from Reports to view the receipt and select
+                        <strong>Print</strong>. Use the browser print dialog to print or save the receipt.</p>
+                    <div class="warning"><strong>GST and prices</strong>Product prices are treated as GST-inclusive.
+                        MotoDhandho does not add GST again during billing. The GST fields help classify products and
+                        reports, but the current invoice calculation does not add a separate GST amount.</div>
+                    <div class="tip"><strong>Common messages</strong>If an item has insufficient stock, a barcode is not
+                        found, the payment is incomplete, or your session has expired, MotoDhandho shows a message on
+                        the billing screen. Fix the message and try again.</div>
+                </section>
+
+                <section id="reports">
+                    <h2>5. Reports, receipts, and returns</h2>
+                    <p>Open <strong>Reports</strong> to find invoices and understand your sales.</p>
+                    <h3>Find an invoice</h3>
+                    <p>Filter by invoice status, current or last month, current or last calendar year, current or last
+                        financial year, or a custom date range. You can also filter by GST or non-GST classification and
+                        search by invoice number, customer, GST number, status, or payment method.</p>
+                    <h3>View and print</h3>
+                    <ol class="steps">
+                        <li>Find the invoice using filters or search.</li>
+                        <li>Select <strong>View</strong> to open the receipt.</li>
+                        <li>Select <strong>Print</strong> and choose your printer, or choose the browser option to save
+                            as PDF.</li>
+                    </ol>
+                    <h3>Export report data</h3>
+                    <p>Use the report export controls to download a CSV file or open a print-ready report. The CSV file
+                        can be opened in Excel or another spreadsheet application.</p>
+                    <div class="warning"><strong>Export wording</strong>The Excel option currently creates a CSV file.
+                        The PDF option opens a formatted print window; it does not directly download a PDF file. Choose
+                        “Save as PDF” in the print dialog.</div>
+                    <h3>Return items</h3>
+                    <ol class="steps">
+                        <li>Open a saved-customer invoice in Reports.</li>
+                        <li>Select <strong>Return</strong> and enter the quantity for each item being returned.</li>
+                        <li>Select <strong>Process return</strong>.</li>
+                    </ol>
+                    <p>The returned quantity goes back into stock, and the returned amount is added to that saved
+                        customer's credit. Walk-in invoices cannot be returned through the screen.</p>
+                </section>
+
+                <section id="backup">
+                    <h2>6. Backup and restore</h2>
+                    <p>Keep a regular copy of your business database, especially before a major change or computer
+                        maintenance.</p>
+                    <h3>Download a backup</h3>
+                    <ol class="steps">
+                        <li>Select your account picture in the bottom-left area.</li>
+                        <li>Select <strong>Export Database Backup</strong> or <strong>Download Backup</strong>.</li>
+                        <li>Store the downloaded database file in a secure location.</li>
+                    </ol>
+                    <h3>Import a backup</h3>
+                    <ol class="steps">
+                        <li>Open the account menu and select <strong>Import Database</strong>.</li>
+                        <li>Choose a compatible <code>.sqlite</code>, <code>.db</code>, or <code>.sqlite3</code> file.
+                        </li>
+                        <li>Wait for the confirmation, then allow MotoDhandho to reload.</li>
+                    </ol>
+                    <div class="warning"><strong>Important</strong>Import replaces the current database with the
+                        selected data. Use a backup first and only import a file you trust. An invalid or incompatible
+                        file will be rejected.</div>
+                    <h3>Theme</h3>
+                    <p>Use the account menu to switch between light mode and dark mode. The choice changes the
+                        appearance of the application and does not change your business data.</p>
+                </section>
+
+                <section id="updates">
+                    <h2>7. Updates and logout</h2>
+                    <h3>Check for updates</h3>
+                    <p>The packaged Windows application checks for updates when it starts and every four hours. To check
+                        manually, use <strong>Help &gt; Check for updates</strong> or press <code>Ctrl+Shift+U</code>.
+                        You can choose when to download and restart.</p>
+                    <div class="tip"><strong>Before restarting</strong>Finish or note any unfinished billing work before
+                        installing an update. MotoDhandho creates and checks a database snapshot before an update is
+                        installed.</div>
+                    <h3>Log out</h3>
+                    <p>Select your account picture and choose <strong>Logout</strong>. MotoDhandho attempts a backup
+                        before clearing the local login session. You will return to the sign-in screen.</p>
+                </section>
+
+                <section id="help">
+                    <h2>8. Helpful notes</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Situation</th>
+                                <th>What to do</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Barcode does not find a product</td>
+                                <td>Check the code, confirm the product exists, or search by product name. The product
+                                    must have been saved first.</td>
+                            </tr>
+                            <tr>
+                                <td>Payment cannot be completed</td>
+                                <td>Make sure the payment total plus eligible customer credit covers the final amount.
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Customer cannot be saved</td>
+                                <td>Check that name, phone, and email are filled in and that the record is not a
+                                    duplicate.</td>
+                            </tr>
+                            <tr>
+                                <td>Product cannot be saved</td>
+                                <td>Choose a supplier and check that prices, stock, GST, and discount are not negative.
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Report looks empty</td>
+                                <td>Change the date range or remove a filter, then refresh the report.</td>
+                            </tr>
+                            <tr>
+                                <td>Session has expired</td>
+                                <td>Log in again. Save or note any unfinished work before leaving the screen.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <h3>Current scope</h3>
+                    <p>MotoDhandho currently focuses on retail billing and inventory. It does not include supplier
+                        purchase orders, stock receiving, payable management, automatic refunds, or an in-app
+                        password-change page.</p>
+                    <hr class="rule">
+                    <p><strong>Thank you for choosing MotoDhandho.</strong> This manual was prepared for clients by
+                        <strong>Veloura</strong>.</p>
+                </section>
+            </main>
+        </div>
+        <footer class="footer">MotoDhandho User Manual <span aria-hidden="true">|</span> Prepared by
+            <strong>Veloura</strong></footer>
+    </div>
+</body>
+
+</html>
